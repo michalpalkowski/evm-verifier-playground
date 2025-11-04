@@ -1,0 +1,26 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+
+# Solidity compiler version - upgraded to 0.8.23 for forge-std support
+# Note: evm-verifier contracts use 0.6.12, Foundry will auto-detect based on pragma
+solc_version = "0.8.23"
+auto_detect_solc = true
+evm_version = "paris"
+
+# Allow importing contracts from evm-verifier-columns lib
+remappings = ["evm-verifier-columns/=lib/evm-verifier-columns/"]
+
+# Optimizer settings
+optimizer = true
+optimizer_runs = 1000
+
+# Test settings
+verbosity = 3
+ffi = true
+fs_permissions = [
+    { access = "read", path = "./proofs" },
+    { access = "read", path = "./input.json" },
+    { access = "read", path = "./annotated_proof.json" }
+]
