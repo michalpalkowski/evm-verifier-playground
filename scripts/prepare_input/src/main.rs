@@ -18,14 +18,24 @@ struct AnnotatedProof {
     proof_parameters: ProofParameters,
 }
 
+/// Public memory for a cairo execution
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublicMemory {
+    pub address: u32,
+    pub page: u32,
+    // todo refactor to u256
+    pub value: String,
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PublicInput {
-    n_steps: u64,
-    rc_min: i64,
-    rc_max: i64,
     layout: String,
     memory_segments: HashMap<String, MemorySegment>,
-    public_memory: Vec<MemoryCell>,
+    n_steps: u64,
+    public_memory: Vec<PublicMemory>,
+    rc_min: i64,
+    rc_max: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,131 +185,6 @@ fn extract_interaction_elements(annotations: &[String]) -> (BigInt, BigInt) {
     (elements[0].clone(), elements[1].clone())
 }
 
-// Compute publicInputHash exactly as verifier does
-// Hash is computed from publicInput WITHOUT page products
-// Note: Verifier uses keccak256, but stone-prover uses HashBytesWithLength
-// For compatibility, we use keccak256 as verifier does
-fn compute_public_input_hash(public_input_without_products: &[BigInt]) -> [u8; 32] {
-    // Convert BigInt array to bytes for hashing
-    // Verifier uses keccak256(add(publicInput, 0x20), publicInputSizeForHash)
-    // which means it skips the length field (first 32 bytes) and hashes the rest
-    let mut bytes = Vec::new();
-    for val in public_input_without_products {
-        let mut bytes_32 = [0u8; 32];
-        let val_bytes = val.to_bytes_be().1;
-        bytes_32[32 - val_bytes.len()..].copy_from_slice(&val_bytes);
-        bytes.extend_from_slice(&bytes_32);
-    }
-    keccak256(&bytes)
-}
-
-// Compute z and alpha from publicInputHash using PRNG, exactly as verifier does
-// IMPORTANT: Verifier reads trace commitment BEFORE computing z and alpha!
-// The trace commitment is read with mix=true, which changes the PRNG state
-// We need to read trace commitment from proof and mix it into PRNG
-fn compute_interaction_elements_from_hash_and_proof(
-    public_input_hash: [u8; 32],
-    proof: &[BigInt],
-) -> (BigInt, BigInt) {
-    let k_modulus =
-        BigInt::parse_bytes(K_MODULUS_STR.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-
-    // K_MONTGOMERY_R_INV from PrimeFieldElement0.sol
-    let k_montgomery_r_inv = BigInt::parse_bytes(
-        "0x40000000000001100000000000012100000000000000000000000000000000"
-            .strip_prefix("0x")
-            .unwrap()
-            .as_bytes(),
-        16,
-    )
-    .unwrap();
-
-    // BOUND = 31 * K_MODULUS (from VerifierChannel.sendFieldElements)
-    let bound = &k_modulus * BigInt::from(31u32);
-
-    // PRNG state: digest = publicInputHash, counter = 0
-    let mut digest = public_input_hash;
-    let mut counter = 0u64;
-
-    // IMPORTANT: Verifier reads trace commitment BEFORE computing z and alpha!
-    // readHash(channelPtr, true) with mix=true changes PRNG state:
-    // digest += 1, counter = val, digest = keccak256(digest + 1 || val), counter = 0
-    // Read first 32 bytes from proof as trace commitment
-    if proof.len() > 0 {
-        let trace_commitment = &proof[0];
-        let mut trace_commitment_bytes = [0u8; 32];
-        let val_bytes = trace_commitment.to_bytes_be().1;
-        trace_commitment_bytes[32 - val_bytes.len()..].copy_from_slice(&val_bytes);
-
-        // Simulate readHash with mix=true exactly as verifier does:
-        // digest += 1 (as uint256, so modulo 2^256)
-        // In Solidity: mstore(digestPtr, add(mload(digestPtr), 1))
-        // This is just adding 1 to the 32-byte value
-        let mut digest_big = BigInt::from_bytes_be(num_bigint::Sign::Plus, &digest);
-        digest_big = digest_big + BigInt::from(1u32);
-
-        // Take modulo 2^256 to simulate uint256 overflow
-        let two_256 = BigInt::from(1u32) << 256;
-        digest_big = digest_big % two_256;
-
-        let mut digest_plus_one_bytes = [0u8; 32];
-        let digest_val_bytes = digest_big.to_bytes_be().1;
-        digest_plus_one_bytes[32 - digest_val_bytes.len()..].copy_from_slice(&digest_val_bytes);
-
-        // keccak256(digest + 1 || val) where val is trace_commitment
-        // In Solidity: keccak256(digestPtr, 0x40) where 0x40 = 64 bytes = digest + counter
-        let mut mix_input = Vec::new();
-        mix_input.extend_from_slice(&digest_plus_one_bytes);
-        mix_input.extend_from_slice(&trace_commitment_bytes);
-        digest = keccak256(&mix_input);
-        counter = 0;
-    }
-
-    let mut interaction_elements = Vec::new();
-
-    // Generate 6 interaction elements (we only need first 2 for z and alpha)
-    for _ in 0..2 {
-        let mut field_element = BigInt::from_bytes_be(num_bigint::Sign::Plus, &digest);
-
-        // Keep generating until field_element < BOUND
-        while field_element >= bound {
-            // Increment counter
-            counter += 1;
-
-            // Compute keccak256(digest, counter)
-            let mut counter_bytes = [0u8; 32];
-            let counter_val = counter.to_be_bytes();
-            counter_bytes[32 - counter_val.len()..].copy_from_slice(&counter_val);
-
-            let mut input = Vec::new();
-            input.extend_from_slice(&digest);
-            input.extend_from_slice(&counter_bytes);
-
-            field_element = BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak256(&input));
-            digest = keccak256(&input);
-        }
-
-        // Convert from Montgomery form: fieldElement * K_MONTGOMERY_R_INV mod K_MODULUS
-        let result = (&field_element * &k_montgomery_r_inv) % &k_modulus;
-        interaction_elements.push(result);
-
-        // Update digest and counter for next iteration
-        counter += 1;
-        let mut counter_bytes = [0u8; 32];
-        let counter_val = counter.to_be_bytes();
-        counter_bytes[32 - counter_val.len()..].copy_from_slice(&counter_val);
-        let mut input = Vec::new();
-        input.extend_from_slice(&digest);
-        input.extend_from_slice(&counter_bytes);
-        digest = keccak256(&input);
-    }
-
-    (
-        interaction_elements[0].clone(),
-        interaction_elements[1].clone(),
-    )
-}
-
 fn decode_hex(s: &str) -> Vec<u8> {
     let hex_clean = s.strip_prefix("0x").unwrap_or(s);
     (0..hex_clean.len())
@@ -373,320 +258,6 @@ fn calculate_product(
     (prod * factor) % prime
 }
 
-fn memory_page_public_input_with_facts(
-    public_memory: &[MemoryCell],
-    z: &BigInt,
-    alpha: &BigInt,
-    memory_page_facts: &MemoryPageFacts,
-) -> Vec<BigInt> {
-    let k_modulus =
-        BigInt::parse_bytes(K_MODULUS_STR.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-
-    let mut result = Vec::new();
-    let mut pages: HashMap<u64, Vec<BigInt>> = HashMap::new();
-    let mut page_prods: HashMap<u64, BigInt> = HashMap::new();
-
-    for cell in public_memory {
-        let page = cell.page;
-        let address = BigInt::parse_bytes(cell.address.as_bytes(), 10)
-            .expect(&format!("Failed to parse address: {}", cell.address));
-        let value = BigInt::parse_bytes(
-            cell.value
-                .strip_prefix("0x")
-                .unwrap_or(&cell.value)
-                .as_bytes(),
-            16,
-        )
-        .expect(&format!("Failed to parse value: {}", cell.value));
-
-        let page_data = pages.entry(page).or_insert_with(Vec::new);
-        page_data.push(address.clone());
-        page_data.push(value.clone());
-
-        let prod = page_prods.entry(page).or_insert_with(BigInt::one);
-        *prod = calculate_product(prod, z, alpha, &address, &value, &k_modulus);
-    }
-
-    // Add padding (from first cell)
-    if let Some(first_cell) = public_memory.first() {
-        let padding_addr = BigInt::parse_bytes(first_cell.address.as_bytes(), 10)
-            .expect("Failed to parse padding address");
-        let padding_val = BigInt::parse_bytes(
-            first_cell
-                .value
-                .strip_prefix("0x")
-                .unwrap_or(&first_cell.value)
-                .as_bytes(),
-            16,
-        )
-        .expect("Failed to parse padding value");
-        result.push(padding_addr);
-        result.push(padding_val);
-    } else {
-        result.push(BigInt::zero());
-        result.push(BigInt::zero());
-    }
-
-    // Add number of pages
-    let n_pages = if memory_page_facts.regular_page.is_some() {
-        1 + memory_page_facts.continuous_pages.len()
-    } else {
-        memory_page_facts.continuous_pages.len()
-    };
-    result.push(BigInt::from(n_pages));
-
-    // Sort pages by page number (page 0 first, then 1, 2, etc.)
-    let mut page_numbers: Vec<u64> = pages.keys().cloned().collect();
-    page_numbers.sort();
-
-    // Add page info (size, hash, address if > 0)
-    // IMPORTANT: Use memory_pairs from memory_page_facts to compute hash
-    // This ensures hash matches what's used in fact registration
-    for (idx, &page_num) in page_numbers.iter().enumerate() {
-        let page = &pages[&page_num];
-
-        // Calculate page hash using memory_pairs from memory_page_facts
-        let page_hash = if idx == 0 && page_num == 0 {
-            // Regular page (page 0): use memory_pairs from memory_page_facts
-            if let Some(ref regular_page) = memory_page_facts.regular_page {
-                let memory_pairs = &regular_page.memory_pairs;
-                eprintln!(
-                    "DEBUG: Using memory_pairs from memory_page_facts, count: {}",
-                    memory_pairs.len()
-                );
-                // Compute hash exactly as MemoryPageFactRegistry does: keccak256(memoryPtr, 0x40 * memorySize)
-                let mut page_bytes = Vec::new();
-                for val in memory_pairs {
-                    let mut bytes_32 = [0u8; 32];
-                    let bytes = val.to_bytes_be().1;
-                    bytes_32[32 - bytes.len()..].copy_from_slice(&bytes);
-                    page_bytes.extend_from_slice(&bytes_32);
-                }
-                let keccak_hash = keccak256(&page_bytes);
-                let hash_bigint = BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash);
-                eprintln!(
-                    "DEBUG: Computed hash from memory_pairs: 0x{:x}",
-                    hash_bigint
-                );
-                hash_bigint
-            } else {
-                eprintln!("DEBUG: regular_page is None, using fallback");
-                // Fallback (should not happen for page 0)
-                let mut page_bytes = Vec::new();
-                for val in page {
-                    let mut bytes_32 = [0u8; 32];
-                    let bytes = val.to_bytes_be().1;
-                    bytes_32[32 - bytes.len()..].copy_from_slice(&bytes);
-                    page_bytes.extend_from_slice(&bytes_32);
-                }
-                let keccak_hash = keccak256(&page_bytes);
-                BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash)
-            }
-        } else {
-            // Continuous page: add address, hash values only
-            result.push(page[0].clone()); // First address
-            let values: Vec<&BigInt> = page.iter().skip(1).step_by(2).collect();
-            let mut values_bytes = Vec::new();
-            for val in values {
-                let mut bytes_32 = [0u8; 32];
-                let bytes = val.to_bytes_be().1;
-                bytes_32[32 - bytes.len()..].copy_from_slice(&bytes);
-                values_bytes.extend_from_slice(&bytes_32);
-            }
-            let keccak_hash = keccak256(&values_bytes);
-            BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash)
-        };
-
-        result.push(BigInt::from(page.len() / 2)); // Page size
-        result.push(page_hash);
-    }
-
-    // Add page products (in sorted order)
-    for &page_num in &page_numbers {
-        result.push(page_prods[&page_num].clone());
-    }
-
-    result
-}
-
-fn memory_page_public_input(
-    public_memory: &[MemoryCell],
-    z: &BigInt,
-    alpha: &BigInt,
-) -> Vec<BigInt> {
-    let k_modulus =
-        BigInt::parse_bytes(K_MODULUS_STR.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-
-    let mut result = Vec::new();
-    let mut pages: HashMap<u64, Vec<BigInt>> = HashMap::new();
-    let mut page_prods: HashMap<u64, BigInt> = HashMap::new();
-
-    for cell in public_memory {
-        let page = cell.page;
-        let address = BigInt::parse_bytes(cell.address.as_bytes(), 10)
-            .expect(&format!("Failed to parse address: {}", cell.address));
-        let value = BigInt::parse_bytes(
-            cell.value
-                .strip_prefix("0x")
-                .unwrap_or(&cell.value)
-                .as_bytes(),
-            16,
-        )
-        .expect(&format!("Failed to parse value: {}", cell.value));
-
-        let page_data = pages.entry(page).or_insert_with(Vec::new);
-        page_data.push(address.clone());
-        page_data.push(value.clone());
-
-        let prod = page_prods.entry(page).or_insert_with(BigInt::one);
-        *prod = calculate_product(prod, z, alpha, &address, &value, &k_modulus);
-    }
-
-    // Add padding (from first cell)
-    if let Some(first_cell) = public_memory.first() {
-        let padding_addr = BigInt::parse_bytes(first_cell.address.as_bytes(), 10)
-            .expect("Failed to parse padding address");
-        let padding_val = BigInt::parse_bytes(
-            first_cell
-                .value
-                .strip_prefix("0x")
-                .unwrap_or(&first_cell.value)
-                .as_bytes(),
-            16,
-        )
-        .expect("Failed to parse padding value");
-        result.push(padding_addr);
-        result.push(padding_val);
-    } else {
-        result.push(BigInt::zero());
-        result.push(BigInt::zero());
-    }
-
-    // Add number of pages
-    result.push(BigInt::from(pages.len()));
-
-    // Sort pages by page number
-    let mut page_numbers: Vec<u64> = pages.keys().cloned().collect();
-    page_numbers.sort();
-
-    // Add page info (size, hash, address if > 0)
-    for (idx, &page_num) in page_numbers.iter().enumerate() {
-        let page = &pages[&page_num];
-
-        // Calculate page hash
-        // IMPORTANT: This hash MUST match the hash computed by MemoryPageFactRegistry.computeFactHash
-        // which uses keccak256(memoryPtr, 0x40 * memorySize) where memoryPtr points to the memoryPairs array
-        let page_hash = if idx == 0 {
-            // Regular page: hash all pairs (keccak256 of packed pairs)
-            // The hash must match what's computed from memory_pairs in prepare_memory_page_facts
-            // Ensure we use the same data and format as memory_pairs
-            let mut page_bytes = Vec::new();
-            for val in page {
-                let mut bytes_32 = [0u8; 32];
-                let bytes = val.to_bytes_be().1;
-                bytes_32[32 - bytes.len()..].copy_from_slice(&bytes);
-                page_bytes.extend_from_slice(&bytes_32);
-            }
-            let keccak_hash = keccak256(&page_bytes);
-            BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash)
-        } else {
-            // Continuous page: add address, hash values only
-            result.push(page[0].clone()); // First address
-            let values: Vec<&BigInt> = page.iter().skip(1).step_by(2).collect();
-            let mut values_bytes = Vec::new();
-            for val in values {
-                let mut bytes_32 = [0u8; 32];
-                let bytes = val.to_bytes_be().1;
-                bytes_32[32 - bytes.len()..].copy_from_slice(&bytes);
-                values_bytes.extend_from_slice(&bytes_32);
-            }
-            let keccak_hash = keccak256(&values_bytes);
-            BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash)
-        };
-
-        result.push(BigInt::from(page.len() / 2)); // Page size
-        result.push(page_hash);
-    }
-
-    // Add page products (in sorted order)
-    for &page_num in &page_numbers {
-        result.push(page_prods[&page_num].clone());
-    }
-
-    result
-}
-
-fn cairo_aux_input_with_facts(
-    annotated_proof: &AnnotatedProof,
-    z: &BigInt,
-    alpha: &BigInt,
-    memory_page_facts: &MemoryPageFacts,
-) -> Vec<BigInt> {
-    let public_input = &annotated_proof.public_input;
-
-    // Log n_steps
-    let log_n_steps = (public_input.n_steps as f64).log2() as u32;
-
-    let mut result = vec![
-        BigInt::from(log_n_steps),
-        BigInt::from(public_input.rc_min),
-        BigInt::from(public_input.rc_max),
-    ];
-
-    // Layout (encode as ASCII bytes to uint256)
-    let layout_bytes = public_input.layout.as_bytes();
-    let layout_big = BigInt::from_bytes_be(num_bigint::Sign::Plus, layout_bytes);
-    result.push(layout_big);
-
-    // Segments
-    result.extend(serialize_segments(public_input));
-
-    // Memory pages - use memory_page_facts to compute consistent hashes
-    result.extend(memory_page_public_input_with_facts(
-        &public_input.public_memory,
-        z,
-        alpha,
-        memory_page_facts,
-    ));
-
-    result
-}
-
-fn cairo_aux_input(annotated_proof: &AnnotatedProof, z: &BigInt, alpha: &BigInt) -> Vec<BigInt> {
-    let public_input = &annotated_proof.public_input;
-
-    // Log n_steps
-    let log_n_steps = (public_input.n_steps as f64).log2() as u32;
-
-    let mut result = vec![
-        BigInt::from(log_n_steps),
-        BigInt::from(public_input.rc_min),
-        BigInt::from(public_input.rc_max),
-    ];
-
-    // Layout (encode as ASCII bytes to uint256)
-    // Note: stark-evm-adapter uses from_big_endian without padding
-    // So we convert directly from ASCII bytes without padding to match
-    let layout_bytes = public_input.layout.as_bytes();
-    let layout_big = BigInt::from_bytes_be(num_bigint::Sign::Plus, layout_bytes);
-    result.push(layout_big);
-
-    // Segments
-    result.extend(serialize_segments(public_input));
-
-    // Memory pages
-    result.extend(memory_page_public_input(
-        &public_input.public_memory,
-        z,
-        alpha,
-    ));
-
-    // Note: z and alpha are NOT included in publicInput for verifyProofExternal
-    // They are computed by the verifier from publicInputHash
-
-    result
-}
-
 fn proof_params(annotated_proof: &AnnotatedProof) -> Vec<BigInt> {
     let fri_params = &annotated_proof.proof_parameters.stark.fri;
     let stark_params = &annotated_proof.proof_parameters.stark;
@@ -717,8 +288,7 @@ fn prepare_memory_page_facts(annotated_proof: &AnnotatedProof) -> MemoryPageFact
     // Group memory cells by page
     for cell in &annotated_proof.public_input.public_memory {
         let page = cell.page;
-        let address = BigInt::parse_bytes(cell.address.as_bytes(), 10)
-            .expect(&format!("Failed to parse address: {}", cell.address));
+        let address = BigInt::from(cell.address);
         let value = BigInt::parse_bytes(
             cell.value
                 .strip_prefix("0x")
@@ -729,7 +299,7 @@ fn prepare_memory_page_facts(annotated_proof: &AnnotatedProof) -> MemoryPageFact
         .expect(&format!("Failed to parse value: {}", cell.value));
 
         pages
-            .entry(page)
+            .entry(page as u64)
             .or_insert_with(Vec::new)
             .push((address, value));
     }
@@ -837,8 +407,7 @@ fn prepare_public_input_without_products(
 
     for cell in &public_input.public_memory {
         let page = cell.page;
-        let address = BigInt::parse_bytes(cell.address.as_bytes(), 10)
-            .expect(&format!("Failed to parse address: {}", cell.address));
+        let address = BigInt::from(cell.address);
         let value = BigInt::parse_bytes(
             cell.value
                 .strip_prefix("0x")
@@ -848,15 +417,14 @@ fn prepare_public_input_without_products(
         )
         .expect(&format!("Failed to parse value: {}", cell.value));
 
-        let page_data = pages.entry(page).or_insert_with(Vec::new);
+        let page_data = pages.entry(page as u64).or_insert_with(Vec::new);
         page_data.push(address.clone());
         page_data.push(value.clone());
     }
 
     // Add padding (from first cell)
     if let Some(first_cell) = public_input.public_memory.first() {
-        let padding_addr = BigInt::parse_bytes(first_cell.address.as_bytes(), 10)
-            .expect("Failed to parse padding address");
+        let padding_addr = BigInt::from(first_cell.address);
         let padding_val = BigInt::parse_bytes(
             first_cell
                 .value
@@ -866,11 +434,13 @@ fn prepare_public_input_without_products(
             16,
         )
         .expect("Failed to parse padding value");
-        result.push(padding_addr);
-        result.push(padding_val);
+        eprintln!("DEBUG: Adding padding_addr={:x}, padding_val={:x}", padding_addr, padding_val);
+        eprintln!("DEBUG: result.len() before padding: {}", result.len());
+        result.push(padding_addr.clone());
+        result.push(padding_val.clone());
+        eprintln!("DEBUG: result[{}]={:x}, result[{}]={:x}", result.len()-2, result[result.len()-2], result.len()-1, result[result.len()-1]);
     } else {
-        result.push(BigInt::zero());
-        result.push(BigInt::zero());
+        panic!("No first cell found in public memory");
     }
 
     // Add number of pages
@@ -905,18 +475,10 @@ fn prepare_public_input_without_products(
                 let keccak_hash = keccak256(&page_bytes);
                 BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash)
             } else {
-                // Fallback (should not happen for page 0)
-                let mut page_bytes = Vec::new();
-                for val in page {
-                    let mut bytes_32 = [0u8; 32];
-                    let bytes = val.to_bytes_be().1;
-                    bytes_32[32 - bytes.len()..].copy_from_slice(&bytes);
-                    page_bytes.extend_from_slice(&bytes_32);
-                }
-                let keccak_hash = keccak256(&page_bytes);
-                BigInt::from_bytes_be(num_bigint::Sign::Plus, &keccak_hash)
+                panic!("No regular page found in memory page facts");
             }
         } else {
+            println!("Continuous page: {:?}", page);
             // Continuous page: add address first, then hash values only
             result.push(page[0].clone()); // First address
             let values: Vec<&BigInt> = page.iter().skip(1).step_by(2).collect();
@@ -936,6 +498,11 @@ fn prepare_public_input_without_products(
     }
 
     // Note: page products are NOT added here - they will be added after computing z and alpha
+    eprintln!("DEBUG: prepare_public_input_without_products returns {} elements", result.len());
+    eprintln!("DEBUG: Last 10 elements:");
+    for i in (result.len().saturating_sub(10))..result.len() {
+        eprintln!("  [{}] = {:x}", i, result[i]);
+    }
     result
 }
 
@@ -974,8 +541,7 @@ fn prepare_verifier_input(annotated_proof_path: &str) -> VerifierInput {
 
     for cell in &annotated_proof.public_input.public_memory {
         let page = cell.page;
-        let address = BigInt::parse_bytes(cell.address.as_bytes(), 10)
-            .expect(&format!("Failed to parse address: {}", cell.address));
+        let address = BigInt::from(cell.address);
         let value = BigInt::parse_bytes(
             cell.value
                 .strip_prefix("0x")
@@ -985,16 +551,20 @@ fn prepare_verifier_input(annotated_proof_path: &str) -> VerifierInput {
         )
         .expect(&format!("Failed to parse value: {}", cell.value));
 
-        let prod = page_prods.entry(page).or_insert_with(BigInt::one);
+        let prod = page_prods.entry(page as u64).or_insert_with(BigInt::one);
         *prod = calculate_product(prod, &z, &alpha, &address, &value, &k_modulus);
     }
 
     // Add page products to public_input (in sorted order)
+    // NOTE: Products must be added AFTER all page info (address/size/hash)
     let mut page_numbers: Vec<u64> = page_prods.keys().cloned().collect();
     page_numbers.sort();
+    eprintln!("DEBUG: Adding {} products", page_numbers.len());
     for &page_num in &page_numbers {
+        eprintln!("DEBUG: Adding product for page {}: {:x}", page_num, page_prods[&page_num]);
         public_input.push(page_prods[&page_num].clone());
     }
+    eprintln!("DEBUG: Final public_input length: {}", public_input.len());
 
     VerifierInput {
         proof_params,

@@ -1,4 +1,7 @@
 [workspace]
-members = ["scripts/prepare_input"]
+members = [
+    "scripts/prepare_input",
+    "scripts/calculate_fri_steps"
+]
 resolver = "2"
 

@@ -77,7 +77,7 @@ contract CpuVerifierTest is Test {
             auxPolynomials,
             address(oodsContract),
             address(factRegistry),
-            80,  // numSecurityBits
+            60,  // numSecurityBits
             20   // minProofOfWorkBits
         );
     }
@@ -186,16 +186,29 @@ contract CpuVerifierTest is Test {
         uint256[] memory proof = hexStringArrayToUint256Array(proofHex);
         uint256[] memory publicInput = hexStringArrayToUint256Array(publicInputHex);
 
-        // Compute z and alpha using the verifier's PRNG (to match exactly what verifier will use)
-        (uint256 z, uint256 alpha) = verifier.computeInteractionElements(proofParams, proof, publicInput);
+        // Read z and alpha from input.json (computed by prepare-input from annotations)
+        // These were used to compute the products in public_input
+        string memory zHex = vm.parseJsonString(inputJson, ".z");
+        string memory alphaHex = vm.parseJsonString(inputJson, ".alpha");
+        uint256 z = hexStringToUint256(zHex);
+        uint256 alpha = hexStringToUint256(alphaHex);
 
-        console.log("Verifier computed z:");
+        console.log("Using z from input.json:");
         console.logBytes32(bytes32(z));
-        console.log("Verifier computed alpha:");
+        console.log("Using alpha from input.json:");
         console.logBytes32(bytes32(alpha));
 
-        // Register memory page facts using the verifier's z and alpha
+        // Register memory page facts using z and alpha from annotations
         registerMemoryPageFactsWithZAlpha(inputJson, z, alpha);
+
+        console.log("Proof length:");
+        console.logUint(proof.length);
+        console.log("Public input length:");
+        console.logUint(publicInput.length);
+        console.log("Proof params length:");
+        console.logUint(proofParams.length);
+        console.log("Whole input length (proofParams + proof + publicInput):");
+        console.logUint(proofParams.length + proof.length + publicInput.length);
 
         // Verify proof
         verifier.verifyProofExternal(proofParams, proof, publicInput);

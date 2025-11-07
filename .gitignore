@@ -10,6 +10,20 @@ out/
 # Docs
 docs/
 
-# Dotenv file
+# Dotenv file (keep .env.example)
 .env
+
+# Rust build
 target/
+
+# Working directory with generated proofs
+work/
+
+# Generated proof files in root (symlinks)
+annotated_proof.json
+input.json
+*_proof.json
+*_input.json
+*_output.json
+*_annotation_file.json
+benchmark.txt
