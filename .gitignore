@@ -27,3 +27,10 @@ input.json
 *_output.json
 *_annotation_file.json
 benchmark.txt
+benchmark.md
+examples/*/fibonacci_input.json.bak
+
+# Deployment
+.env.deploy
+deployment-addresses.json
+broadcast/

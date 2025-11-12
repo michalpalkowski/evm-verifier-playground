@@ -1,5 +1,8 @@
 .PHONY: help setup clean prove verify test all
 
+# Use bash as shell
+SHELL := /bin/bash
+
 # Load environment variables
 include .env
 export
@@ -30,6 +33,15 @@ help:
 	@echo "  make clean          - Clean generated files"
 	@echo "  make copy-cairo-files PROGRAM=fibonacci - Copy files from stone-prover"
 	@echo "  make calc-fri-steps PROGRAM=fibonacci   - Calculate optimal FRI steps"
+	@echo "  make benchmark      - Run benchmark tests (fibonacci)"
+	@echo ""
+	@echo "Deployment:"
+	@echo "  make deploy-sepolia-dry      - Simulate deployment to Sepolia"
+	@echo "  make deploy-sepolia          - Deploy to Sepolia (no verification)"
+	@echo "  make deploy-sepolia-verified - Deploy + auto-verify on Etherscan"
+	@echo "  make verify-contracts-sepolia - Verify contracts after deployment"
+	@echo "  make verify-proof-sepolia    - Verify proof on deployed contract"
+	@echo "  make view-proof-sepolia      - View proof result (read-only)"
 
 # Setup project
 setup:
@@ -169,3 +181,117 @@ quick-test:
 		make prepare PROGRAM=$(PROGRAM); \
 		make test-gas; \
 	fi
+
+# Run benchmarks
+benchmark:
+	@echo "Running benchmarks..."
+	@./scripts/benchmark.sh 10 100 1000 10000 100000 1000000
+
+# Deployment targets
+deploy-sepolia:
+	@echo "Deploying to Sepolia testnet..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$SEPOLIA_RPC_URL \
+		--broadcast \
+		-vvvv
+	@echo ""
+	@echo "Deployment complete! To verify contracts on Etherscan, run:"
+	@echo "  make verify-contracts-sepolia"
+
+# Deploy with automatic Etherscan verification
+deploy-sepolia-verified:
+	@echo "Deploying to Sepolia with verification..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@if [ -z "$$ETHERSCAN_API_KEY" ]; then \
+		set -a && source .env.deploy && set +a; \
+		if [ -z "$$ETHERSCAN_API_KEY" ]; then \
+			echo "Error: ETHERSCAN_API_KEY not set in .env.deploy"; \
+			exit 1; \
+		fi; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$SEPOLIA_RPC_URL \
+		--broadcast \
+		--verify \
+		--etherscan-api-key $$ETHERSCAN_API_KEY \
+		-vvvv
+
+deploy-sepolia-dry:
+	@echo "Dry run deployment to Sepolia..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$SEPOLIA_RPC_URL \
+		-vvvv
+
+verify-contracts-sepolia:
+	@echo "Verifying all deployed contracts on Etherscan..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found."; \
+		exit 1; \
+	fi
+	@if [ ! -f deployment-addresses.json ]; then \
+		echo "Error: deployment-addresses.json not found. Deploy first."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && \
+	VERIFIER=$$(cat deployment-addresses.json | jq -r '.verifier') && \
+	echo "Verifying CpuVerifier at $$VERIFIER..." && \
+	forge verify-contract $$VERIFIER \
+		src/layout_starknet/CpuVerifier.sol:CpuVerifier \
+		--chain sepolia \
+		--etherscan-api-key $$ETHERSCAN_API_KEY \
+		--watch
+
+verify-single-sepolia:
+	@echo "Verifying single contract on Sepolia..."
+	@if [ -z "$(CONTRACT)" ]; then \
+		echo "Error: CONTRACT address not set. Use: make verify-single-sepolia CONTRACT=0x..."; \
+		exit 1; \
+	fi
+	@source .env.deploy && forge verify-contract $(CONTRACT) \
+		src/layout_starknet/CpuVerifier.sol:CpuVerifier \
+		--chain sepolia \
+		--etherscan-api-key $$ETHERSCAN_API_KEY
+
+# Verify proof on deployed contract
+verify-proof-sepolia:
+	@echo "Verifying proof on deployed Sepolia contract..."
+	@if [ \! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found."; \
+		exit 1; \
+	fi
+	@if [ \! -f deployment-addresses.json ]; then \
+		echo "Error: deployment-addresses.json not found. Deploy first with: make deploy-sepolia"; \
+		exit 1; \
+	fi
+	@if [ \! -f input.json ]; then \
+		echo "Error: input.json not found. Generate proof first with: make prepare PROGRAM=fibonacci"; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/VerifyProof.s.sol:VerifyProofScript \
+		--rpc-url $$SEPOLIA_RPC_URL \
+		--broadcast \
+		-vvvv
+
+# View proof on-chain (read-only, no gas cost)
+view-proof-sepolia:
+	@echo "Viewing proof verification result (read-only)..."
+	@if [ \! -f deployment-addresses.json ]; then \
+		echo "Error: deployment-addresses.json not found."; \
+		exit 1; \
+	fi
+	@VERIFIER=$$(cat deployment-addresses.json | jq -r ".verifier") && \
+	set -a && source .env.deploy && set +a && \
+	forge script script/VerifyProof.s.sol:VerifyProofScript \
+		--rpc-url $$SEPOLIA_RPC_URL \
+		-vvv

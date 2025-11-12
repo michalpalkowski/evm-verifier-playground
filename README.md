@@ -18,6 +18,7 @@ make all-skip-cairo PROGRAM=fibonacci
 - Stone prover binaries (`cpu_air_prover`, `cpu_air_verifier`)
 - `stark_evm_adapter` in PATH
 - Rust & Foundry
+- `bc` (for benchmarks): `sudo dnf install bc`
 
 ## Usage
 
@@ -67,6 +68,12 @@ make all-skip-cairo PROGRAM=<name>     # Skip cairo-run
 
 # Utilities
 make calc-fri-steps PROGRAM=<name>     # Calculate FRI steps
+make benchmark                         # Run benchmark tests
+
+# Deployment (Sepolia testnet)
+make deploy-sepolia-dry                # Simulate deployment
+make deploy-sepolia                    # Deploy to Sepolia
+make verify-proof-sepolia              # Verify proof on-chain
 ```
 
 ## Configuration
@@ -125,6 +132,25 @@ cp myprogram_compiled.json examples/myprogram/
 cp myprogram_input.json examples/myprogram/
 make all-skip-cairo PROGRAM=myprogram
 ```
+
+## Deployment
+
+Deploy to Sepolia testnet:
+
+```bash
+# Setup
+cp .env.deploy.example .env.deploy
+# Edit .env.deploy with your keys
+
+# Deploy
+make deploy-sepolia
+
+# Verify proof on-chain
+make prepare PROGRAM=fibonacci
+make verify-proof-sepolia
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full guide.
 
 ## Troubleshooting
 
