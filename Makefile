@@ -35,13 +35,21 @@ help:
 	@echo "  make calc-fri-steps PROGRAM=fibonacci   - Calculate optimal FRI steps"
 	@echo "  make benchmark      - Run benchmark tests (fibonacci)"
 	@echo ""
-	@echo "Deployment:"
-	@echo "  make deploy-sepolia-dry      - Simulate deployment to Sepolia"
-	@echo "  make deploy-sepolia          - Deploy to Sepolia (no verification)"
-	@echo "  make deploy-sepolia-verified - Deploy + auto-verify on Etherscan"
+	@echo "Deployment (Sepolia):"
+	@echo "  make deploy-sepolia-dry       - Simulate deployment to Sepolia"
+	@echo "  make deploy-sepolia           - Deploy to Sepolia (no verification)"
+	@echo "  make deploy-sepolia-verified  - Deploy + auto-verify on Etherscan"
 	@echo "  make verify-contracts-sepolia - Verify contracts after deployment"
-	@echo "  make verify-proof-sepolia    - Verify proof on deployed contract"
-	@echo "  make view-proof-sepolia      - View proof result (read-only)"
+	@echo "  make verify-proof-sepolia     - Verify proof on deployed contract"
+	@echo "  make view-proof-sepolia       - View proof result (read-only)"
+	@echo ""
+	@echo "Deployment (Base):"
+	@echo "  make deploy-base-sepolia-dry       - Simulate deployment to Base Sepolia"
+	@echo "  make deploy-base-sepolia           - Deploy to Base Sepolia (testnet)"
+	@echo "  make deploy-base-sepolia-verified  - Deploy + auto-verify on Basescan"
+	@echo "  make verify-contracts-base-sepolia - Verify contracts after deployment"
+	@echo "  make verify-proof-base-sepolia     - Verify proof on deployed contract"
+	@echo "  make deploy-base                   - Deploy to Base Mainnet (⚠️  CAUTION)"
 
 # Setup project
 setup:
@@ -295,3 +303,117 @@ view-proof-sepolia:
 	forge script script/VerifyProof.s.sol:VerifyProofScript \
 		--rpc-url $$SEPOLIA_RPC_URL \
 		-vvv
+
+# ======================================
+# Base Network Deployment Targets
+# ======================================
+
+# Deploy to Base Sepolia (testnet)
+deploy-base-sepolia:
+	@echo "Deploying to Base Sepolia testnet..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$BASE_SEPOLIA_RPC_URL \
+		--broadcast \
+		-vvvv
+	@echo ""
+	@echo "Deployment complete! To verify contracts on Basescan, run:"
+	@echo "  make verify-contracts-base-sepolia"
+
+# Deploy to Base Sepolia with automatic verification
+deploy-base-sepolia-verified:
+	@echo "Deploying to Base Sepolia with verification..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@if [ -z "$$BASESCAN_API_KEY" ]; then \
+		set -a && source .env.deploy && set +a; \
+		if [ -z "$$BASESCAN_API_KEY" ]; then \
+			echo "Error: BASESCAN_API_KEY not set in .env.deploy"; \
+			exit 1; \
+		fi; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$BASE_SEPOLIA_RPC_URL \
+		--broadcast \
+		--verify \
+		--verifier-url https://api-sepolia.basescan.org/api \
+		--etherscan-api-key $$BASESCAN_API_KEY \
+		-vvvv
+
+# Dry run deployment to Base Sepolia
+deploy-base-sepolia-dry:
+	@echo "Dry run deployment to Base Sepolia..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$BASE_SEPOLIA_RPC_URL \
+		-vvvv
+
+# Verify contracts on Base Sepolia
+verify-contracts-base-sepolia:
+	@echo "Verifying all deployed contracts on Basescan..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found."; \
+		exit 1; \
+	fi
+	@if [ ! -f deployment-addresses.json ]; then \
+		echo "Error: deployment-addresses.json not found. Deploy first."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && \
+	VERIFIER=$$(cat deployment-addresses.json | jq -r '.verifier') && \
+	echo "Verifying CpuVerifier at $$VERIFIER..." && \
+	forge verify-contract $$VERIFIER \
+		src/layout_starknet/CpuVerifier.sol:CpuVerifier \
+		--chain-id 84532 \
+		--verifier-url https://api-sepolia.basescan.org/api \
+		--etherscan-api-key $$BASESCAN_API_KEY \
+		--watch
+
+# Verify proof on deployed Base Sepolia contract
+verify-proof-base-sepolia:
+	@echo "Verifying proof on deployed Base Sepolia contract..."
+	@if [ \! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found."; \
+		exit 1; \
+	fi
+	@if [ \! -f deployment-addresses.json ]; then \
+		echo "Error: deployment-addresses.json not found. Deploy first with: make deploy-base-sepolia"; \
+		exit 1; \
+	fi
+	@if [ \! -f input.json ]; then \
+		echo "Error: input.json not found. Generate proof first with: make prepare PROGRAM=fibonacci"; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/VerifyProof.s.sol:VerifyProofScript \
+		--rpc-url $$BASE_SEPOLIA_RPC_URL \
+		--broadcast \
+		-vvvv
+
+# Deploy to Base Mainnet
+deploy-base:
+	@echo "Deploying to Base Mainnet..."
+	@echo "WARNING: This will deploy to MAINNET. Make sure you have enough ETH!"
+	@read -p "Are you sure you want to deploy to mainnet? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ ! $$REPLY =~ ^[Yy]$$ ]]; then \
+		echo "Deployment cancelled."; \
+		exit 1; \
+	fi
+	@if [ ! -f .env.deploy ]; then \
+		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$BASE_RPC_URL \
+		--broadcast \
+		-vvvv
+	@echo ""
+	@echo "Mainnet deployment complete!"
