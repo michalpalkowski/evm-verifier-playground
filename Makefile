@@ -195,6 +195,135 @@ benchmark:
 	@echo "Running benchmarks..."
 	@./scripts/benchmark.sh 10 100 1000 10000 100000 1000000
 
+# ======================================
+# Bootloader Proof Generation
+# ======================================
+
+# Step 1: Generate PIE from a Cairo program
+create-pie:
+	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make create-pie PROGRAM=factorial"; exit 1; fi
+	@if [ ! -f "examples/$(PROGRAM)/$(PROGRAM)_compiled.json" ]; then \
+		echo "Error: Program not found: examples/$(PROGRAM)/$(PROGRAM)_compiled.json"; \
+		exit 1; \
+	fi
+	@if [ ! -f "examples/$(PROGRAM)/$(PROGRAM)_input.json" ]; then \
+		echo "Error: Input file not found: examples/$(PROGRAM)/$(PROGRAM)_input.json"; \
+		exit 1; \
+	fi
+	@echo "Generating PIE from $(PROGRAM)..."
+	@mkdir -p bootloader
+	@cd $(STONE_PROVER_DIR) && \
+		source $(VENV_NAME)/bin/activate && \
+		cairo-run \
+			--cairo_pie_output=$(CURDIR)/bootloader/$(PROGRAM).zip \
+			--program=$(CURDIR)/examples/$(PROGRAM)/$(PROGRAM)_compiled.json \
+			--layout=starknet \
+			--program_input=$(CURDIR)/examples/$(PROGRAM)/$(PROGRAM)_input.json
+	@echo "PIE created: bootloader/$(PROGRAM).zip"
+	@echo "Updating bootloader_input.json to reference $(PROGRAM).zip..."
+	@printf '{\n    "tasks": [\n      {\n        "type": "CairoPiePath",\n        "path": "%s/bootloader/%s.zip",\n        "use_poseidon": true\n      }\n    ],\n    "single_page": true\n  }\n' "$(CURDIR)" "$(PROGRAM)" > bootloader/bootloader_input.json
+	@echo "✓ PIE ready. Next: make bootloader-cairo-run PROGRAM=$(PROGRAM)"
+
+# Step 2: Run bootloader with PIE to generate trace and memory files
+bootloader-cairo-run:
+	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make bootloader-cairo-run PROGRAM=factorial"; exit 1; fi
+	@if [ ! -f "bootloader/bootloader_input.json" ]; then \
+		echo "Error: bootloader_input.json not found. Run 'make create-pie PROGRAM=$(PROGRAM)' first"; \
+		exit 1; \
+	fi
+	@echo "Running bootloader for: $(PROGRAM)"
+	@mkdir -p bootloader
+	@if [ -n "$(CAIRO_LANG_DIR)" ] && [ -d "$(CAIRO_LANG_DIR)" ]; then \
+		echo "Using cairo-lang from: $(CAIRO_LANG_DIR)"; \
+		cd $(CAIRO_LANG_DIR) && \
+		source $(CAIRO_LANG_VENV)/bin/activate && \
+		python src/starkware/cairo/lang/scripts/cairo-run \
+			--program=$(CURDIR)/bootloader/bootloader.json \
+			--layout=starknet \
+			--program_input=$(CURDIR)/bootloader/bootloader_input.json \
+			--print_output \
+			--print_info \
+			--air_public_input=$(CURDIR)/bootloader/$(PROGRAM)_public_input.json \
+			--air_private_input=$(CURDIR)/bootloader/$(PROGRAM)_private_input.json \
+			--trace_file=$(CURDIR)/bootloader/$(PROGRAM)_trace.bin \
+			--memory_file=$(CURDIR)/bootloader/$(PROGRAM)_memory.bin \
+			--proof_mode; \
+	else \
+		echo "CAIRO_LANG_DIR not set or doesn't exist, using stone-prover"; \
+		cd $(STONE_PROVER_DIR) && \
+		source $(VENV_NAME)/bin/activate && \
+		python src/starkware/cairo/lang/scripts/cairo-run \
+			--program=$(CURDIR)/bootloader/bootloader.json \
+			--layout=starknet \
+			--program_input=$(CURDIR)/bootloader/bootloader_input.json \
+			--print_output \
+			--print_info \
+			--air_public_input=$(CURDIR)/bootloader/$(PROGRAM)_public_input.json \
+			--air_private_input=$(CURDIR)/bootloader/$(PROGRAM)_private_input.json \
+			--trace_file=$(CURDIR)/bootloader/$(PROGRAM)_trace.bin \
+			--memory_file=$(CURDIR)/bootloader/$(PROGRAM)_memory.bin \
+			--proof_mode; \
+	fi
+	@echo "✓ Bootloader execution complete"
+	@echo "  Public input: bootloader/$(PROGRAM)_public_input.json"
+	@echo "  Private input: bootloader/$(PROGRAM)_private_input.json"
+	@echo "  Trace: bootloader/$(PROGRAM)_trace.bin"
+	@echo "  Memory: bootloader/$(PROGRAM)_memory.bin"
+	@echo "Next: make bootloader-prove PROGRAM=$(PROGRAM)"
+
+# Step 3: Generate STARK proof from bootloader files
+bootloader-prove:
+	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make bootloader-prove PROGRAM=fibonacci"; exit 1; fi
+	@if [ ! -f "bootloader/$(PROGRAM)_private_input.json" ]; then \
+		echo "Error: Bootloader files not found. Run 'make bootloader-cairo-run PROGRAM=$(PROGRAM)' first"; \
+		exit 1; \
+	fi
+	@echo "Generating STARK proof from bootloader for: $(PROGRAM)"
+	@mkdir -p $(WORK_DIR)/bootloader
+	$(CPU_AIR_PROVER) \
+		--out_file=$(WORK_DIR)/bootloader/$(PROGRAM)_proof.json \
+		--private_input_file=bootloader/$(PROGRAM)_private_input.json \
+		--public_input_file=bootloader/$(PROGRAM)_public_input.json \
+		--prover_config_file=$(PROVER_CONFIG) \
+		--parameter_file=$(PROVER_PARAMS) \
+		--generate_annotations true
+	@echo "Bootloader proof generated: $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json"
+
+# Verify bootloader proof
+bootloader-verify:
+	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make bootloader-verify PROGRAM=fibonacci"; exit 1; fi
+	@echo "Verifying bootloader STARK proof for: $(PROGRAM)"
+	$(CPU_AIR_VERIFIER) \
+		--in_file=$(WORK_DIR)/bootloader/$(PROGRAM)_proof.json \
+		--extra_output_file=$(WORK_DIR)/bootloader/$(PROGRAM)_extra_output.json \
+		--annotation_file=$(WORK_DIR)/bootloader/$(PROGRAM)_annotation_file.json
+	@echo "Bootloader verification complete!"
+
+# Prepare bootloader proof for EVM
+bootloader-prepare: bootloader-verify
+	@echo "Preparing bootloader annotated proof for EVM..."
+	$(STARK_EVM_ADAPTER) gen-annotated-proof \
+		--stone-proof-file $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json \
+		--stone-annotation-file $(WORK_DIR)/bootloader/$(PROGRAM)_annotation_file.json \
+		--stone-extra-annotation-file $(WORK_DIR)/bootloader/$(PROGRAM)_extra_output.json \
+		--output $(WORK_DIR)/bootloader/annotated_proof.json
+	@echo "Generating EVM input for bootloader..."
+	@cargo run --package prepare-input --bin prepare-input \
+		$(WORK_DIR)/bootloader/annotated_proof.json \
+		$(WORK_DIR)/bootloader/input.json
+	@ln -sf $(WORK_DIR)/bootloader/annotated_proof.json annotated_proof.json
+	@ln -sf $(WORK_DIR)/bootloader/input.json input.json
+	@echo "Bootloader EVM proof ready: $(WORK_DIR)/bootloader/input.json"
+
+# Complete bootloader workflow (assumes PIE already created)
+# To start from scratch: make create-pie PROGRAM=factorial && make bootloader-all PROGRAM=factorial
+bootloader-all: bootloader-cairo-run bootloader-prove bootloader-prepare
+	@echo ""
+	@echo "✓ Bootloader workflow complete!"
+	@echo "  PIE: bootloader/$(PROGRAM).zip"
+	@echo "  Proof: $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json"
+	@echo "  EVM Input: $(WORK_DIR)/bootloader/input.json"
+
 # Deployment targets
 deploy-sepolia:
 	@echo "Deploying to Sepolia testnet..."

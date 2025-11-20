@@ -42,6 +42,22 @@ make all-skip-cairo PROGRAM=fibonacci
 make all PROGRAM=fibonacci
 ```
 
+### Bootloader Workflow
+
+Generate PIE from Cairo program, run through bootloader, and prove:
+
+```bash
+make create-pie PROGRAM=factorial          # Create PIE from Cairo program
+make bootloader-cairo-run PROGRAM=factorial # Run bootloader with PIE
+make bootloader-prove PROGRAM=factorial     # Generate proof
+make bootloader-prepare PROGRAM=factorial   # Prepare for EVM
+```
+
+Or all steps:
+```bash
+make create-pie PROGRAM=factorial && make bootloader-all PROGRAM=factorial
+```
+
 ## Commands
 
 ```bash
@@ -66,6 +82,14 @@ make test-gas                          # With gas report
 make all PROGRAM=<name>                # Full pipeline
 make all-skip-cairo PROGRAM=<name>     # Skip cairo-run
 
+# Bootloader
+make create-pie PROGRAM=<name>         # Create PIE from program
+make bootloader-cairo-run PROGRAM=<name> # Run bootloader with PIE
+make bootloader-prove PROGRAM=<name>   # Prove bootloader execution
+make bootloader-verify PROGRAM=<name>  # Verify bootloader proof
+make bootloader-prepare PROGRAM=<name> # Prepare for EVM
+make bootloader-all PROGRAM=<name>     # Full bootloader pipeline
+
 # Utilities
 make calc-fri-steps PROGRAM=<name>     # Calculate FRI steps
 make benchmark                         # Run benchmark tests
@@ -82,6 +106,7 @@ Edit `.env`:
 ```bash
 CAIRO_RUN=./scripts/cairo-run-wrapper.sh
 STONE_PROVER_DIR=/path/to/stone-prover
+CAIRO_LANG_DIR=/path/to/cairo-lang-latest  # For bootloader
 CPU_AIR_PROVER=./programs/cpu_air_prover
 CPU_AIR_VERIFIER=./programs/cpu_air_verifier
 PROVER_PARAMS=./prover_settings/cpu_air_params.json
@@ -112,6 +137,7 @@ fri_step_list = [0, 4, 4, 4, ..., remainder]
 
 ```
 Ethereum_verifier/
+├── bootloader/         # Bootloader files and PIEs
 ├── examples/           # Cairo programs
 ├── programs/           # cpu_air_prover, cpu_air_verifier
 ├── prover_settings/    # cpu_air_params.json
@@ -120,8 +146,8 @@ Ethereum_verifier/
 ├── test/               # Solidity tests
 ├── work/               # Generated files (gitignored)
 ├── .env                # Configuration
-├── Makefile           # Commands
-└── README.md          # This file
+├── Makefile            # Commands
+└── README.md           # This file
 ```
 
 ## Adding Programs

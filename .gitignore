@@ -29,8 +29,8 @@ input.json
 benchmark.txt
 benchmark.md
 examples/*/fibonacci_input.json.bak
-
-# Deployment
+broadcast/
+bootloader/
+.env.deploy
 .env.deploy
 deployment-addresses.json
-broadcast/
