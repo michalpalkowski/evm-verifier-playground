@@ -111,6 +111,19 @@ struct MemoryPageFacts {
     continuous_pages: Vec<MemoryPageContinuous>,
 }
 
+/// Fact topology for GPS verifier task metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactTopology {
+    pub tree_structure: Vec<u8>,
+    pub page_sizes: Vec<usize>,
+}
+
+/// Fact topologies file format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactTopologiesFile {
+    pub fact_topologies: Vec<FactTopology>,
+}
+
 #[derive(Debug, Serialize)]
 struct VerifierInput {
     #[serde(with = "hex_vec")]
@@ -124,6 +137,8 @@ struct VerifierInput {
     #[serde(with = "hex")]
     alpha: BigInt,
     memory_page_facts: MemoryPageFacts,
+    #[serde(with = "hex_vec")]
+    task_metadata: Vec<BigInt>,
 }
 
 mod hex_vec {
@@ -506,6 +521,153 @@ fn prepare_public_input_without_products(
     result
 }
 
+/// Extract program output from public memory
+fn extract_program_output(public_input: &PublicInput) -> Vec<BigInt> {
+    let output_segment = public_input
+        .memory_segments
+        .get("output")
+        .expect("Missing output segment");
+
+    let begin = output_segment.begin_addr;
+    let stop = output_segment.stop_ptr;
+
+    // Build memory map from public_memory
+    let mut memory: HashMap<u64, BigInt> = HashMap::new();
+    for cell in &public_input.public_memory {
+        let value = BigInt::parse_bytes(
+            cell.value.strip_prefix("0x").unwrap_or(&cell.value).as_bytes(),
+            16,
+        )
+        .expect(&format!("Failed to parse value: {}", cell.value));
+        memory.insert(cell.address as u64, value);
+    }
+
+    let mut output = Vec::new();
+    for addr in begin..stop {
+        if let Some(value) = memory.get(&addr) {
+            output.push(value.clone());
+        } else {
+            eprintln!("WARNING: Missing value for output address {}", addr);
+            output.push(BigInt::zero());
+        }
+    }
+    output
+}
+
+/// Generate task metadata for GPS verifier from fact topologies
+fn generate_tasks_metadata(
+    public_input: &PublicInput,
+    fact_topologies: &[FactTopology],
+) -> Vec<BigInt> {
+    // If no fact_topologies, this is a simple proof without bootloader
+    if fact_topologies.is_empty() {
+        println!("No fact_topologies - simple proof without bootloader");
+        return vec![BigInt::zero()]; // nTasks = 0
+    }
+
+    let output = extract_program_output(public_input);
+    println!("Program output length: {}", output.len());
+    println!("Program output: {:?}", output.iter().map(|x| format!("0x{:x}", x)).collect::<Vec<_>>());
+
+    // Simple bootloader output structure:
+    // [0]: nTasks
+    // [1]: outputSize (for task 0)
+    // [2]: programHash (for task 0)
+    // [3..outputSize]: task output data
+    //
+    // taskMetadata structure for GPS verifier:
+    // [0]: nTasks
+    // For each task: outputSize, programHash, nTreePairs, tree_structure...
+    // NOTE: bootloader config is in the proof OUTPUT, NOT in taskMetadata!
+
+    // Detect full bootloader vs simple bootloader format:
+    // Full bootloader: [bootloaderProgramHash, hashedVerifiers, nTasks, ...]
+    // Simple bootloader: [nTasks, outputSize, programHash, ...]
+    // Full bootloader has large values at indices 0 and 1 (hashes), simple has small nTasks at 0
+    let is_full_bootloader = output.len() >= 3 && {
+        let val0 = &output[0];
+        // If output[0] > 2^32, it's likely a hash (full bootloader)
+        val0 > &BigInt::from(0x100000000u64)
+    };
+
+    let (n_tasks, tasks_start_idx) = if is_full_bootloader {
+        println!("Detected FULL bootloader format (with bootloader_config prefix)");
+        // Full bootloader: nTasks at index 2, tasks start at index 3
+        let n = output.get(2)
+            .map(|v| v.to_string().parse::<usize>().unwrap_or(0))
+            .unwrap_or(0);
+        (n, 3usize)
+    } else {
+        println!("Detected SIMPLE bootloader format");
+        // Simple bootloader: nTasks at index 0, tasks start at index 1
+        let n = output.get(0)
+            .map(|v| v.to_string().parse::<usize>().unwrap_or(0))
+            .unwrap_or(0);
+        (n, 1usize)
+    };
+
+    println!("n_tasks: {}", n_tasks);
+
+    if n_tasks != fact_topologies.len() {
+        eprintln!("WARNING: n_tasks ({}) != fact_topologies.len() ({})", n_tasks, fact_topologies.len());
+    }
+
+    // Build task_metadata - starts with nTasks (no bootloader config here!)
+    let mut task_metadata = vec![BigInt::from(n_tasks)];
+    // Tasks start after bootloader header
+    let mut ptr = tasks_start_idx;
+
+    for (i, fact_topology) in fact_topologies.iter().enumerate() {
+        if ptr >= output.len() {
+            eprintln!("ERROR: Output index out of bounds at task {}", i);
+            break;
+        }
+
+        let task_output_size = output[ptr].to_string().parse::<usize>().unwrap_or(0);
+        let program_hash = output.get(ptr + 1).cloned().unwrap_or(BigInt::zero());
+
+        println!("Task {}: outputSize={}, programHash=0x{:x}", i, task_output_size, program_hash);
+
+        task_metadata.push(BigInt::from(task_output_size));
+        task_metadata.push(program_hash);
+
+        // Add tree structure info: nTreePairs, then pairs
+        let n_tree_pairs = fact_topology.tree_structure.len() / 2;
+        task_metadata.push(BigInt::from(n_tree_pairs));
+
+        for &val in &fact_topology.tree_structure {
+            task_metadata.push(BigInt::from(val));
+        }
+
+        ptr += task_output_size;
+    }
+
+    println!("Generated task_metadata with {} elements", task_metadata.len());
+    task_metadata
+}
+
+/// Try to load fact topologies from file
+fn load_fact_topologies(base_path: &str) -> Vec<FactTopology> {
+    // Try multiple possible paths
+    let possible_paths = vec![
+        format!("{}/fact_topologies.json", std::path::Path::new(base_path).parent().unwrap_or(std::path::Path::new(".")).display()),
+        "fact_topologies.json".to_string(),
+        "bootloader/fact_topologies.json".to_string(),
+    ];
+
+    for path in &possible_paths {
+        if let Ok(content) = fs::read_to_string(path) {
+            if let Ok(fact_topologies_file) = serde_json::from_str::<FactTopologiesFile>(&content) {
+                println!("Loaded fact_topologies from: {}", path);
+                return fact_topologies_file.fact_topologies;
+            }
+        }
+    }
+
+    println!("No fact_topologies.json found - using empty (simple proof mode)");
+    Vec::new()
+}
+
 fn prepare_verifier_input(annotated_proof_path: &str) -> VerifierInput {
     let annotated_proof = parse_annotated_proof(annotated_proof_path);
 
@@ -566,6 +728,10 @@ fn prepare_verifier_input(annotated_proof_path: &str) -> VerifierInput {
     }
     eprintln!("DEBUG: Final public_input length: {}", public_input.len());
 
+    // Load fact topologies and generate task metadata
+    let fact_topologies = load_fact_topologies(annotated_proof_path);
+    let task_metadata = generate_tasks_metadata(&annotated_proof.public_input, &fact_topologies);
+
     VerifierInput {
         proof_params,
         proof,
@@ -573,6 +739,7 @@ fn prepare_verifier_input(annotated_proof_path: &str) -> VerifierInput {
         z,
         alpha,
         memory_page_facts,
+        task_metadata,
     }
 }
 
