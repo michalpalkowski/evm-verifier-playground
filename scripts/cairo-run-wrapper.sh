@@ -8,7 +8,12 @@ set -e
 ORIG_DIR="$(pwd)"
 
 # Configuration
-STONE_PROVER_DIR="${STONE_PROVER_DIR:-/home/michal/Documents/stone-prover}"
+# STONE_PROVER_DIR must be set in .env
+if [ -z "$STONE_PROVER_DIR" ]; then
+    echo "Error: STONE_PROVER_DIR not set"
+    echo "Please set STONE_PROVER_DIR in .env file"
+    exit 1
+fi
 VENV_NAME="${VENV_NAME:-venv39}"
 
 # Check if stone-prover directory exists

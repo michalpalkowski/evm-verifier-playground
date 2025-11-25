@@ -612,6 +612,12 @@ fn generate_tasks_metadata(
         eprintln!("WARNING: n_tasks ({}) != fact_topologies.len() ({})", n_tasks, fact_topologies.len());
     }
 
+    // Auto-detect if output actually contains bootloader config
+    // Cairo PIE bootloader doesn't write bootloader config to output
+    // RunProgramTask bootloader does write it
+    // Check if first element is a small number (n_tasks) or large hash`
+
+
     // Build task_metadata - starts with nTasks (no bootloader config here!)
     let mut task_metadata = vec![BigInt::from(n_tasks)];
     // Tasks start after bootloader header

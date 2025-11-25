@@ -34,3 +34,4 @@ bootloader/
 .env.deploy
 .env.deploy
 deployment-addresses.json
+proofs/

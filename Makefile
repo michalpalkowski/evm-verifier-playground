@@ -1,77 +1,121 @@
-.PHONY: help setup clean prove verify test all
+# ============================================================================
+# Ethereum STARK Verifier - Makefile
+# ============================================================================
+# Simple Cairo proofs + Bootloader proofs + Deployment
+# ============================================================================
 
-# Use bash as shell
+.PHONY: help setup clean test \
+	simple-flow cairo-run prove prove-only verify prepare \
+	bootloader bootloader-pie bootloader-run bootloader-prove bootloader-verify bootloader-prepare bootloader-prepare-only \
+	test-gas deploy-sepolia deploy-sepolia-dry deploy-sepolia-verified \
+	verify-contracts-sepolia verify-proof-sepolia view-proof-sepolia \
+	deploy-base-sepolia deploy-base-sepolia-dry deploy-base-sepolia-verified \
+	verify-contracts-base-sepolia verify-proof-base-sepolia deploy-base \
+	copy-cairo-files benchmark flow all bootloader-flow bootloader-all create-pie bootloader-cairo-run
+
+# ----------------------------------------------------------------------------
+# Configuration
+# ----------------------------------------------------------------------------
+
 SHELL := /bin/bash
 
-# Load environment variables
+# Load environment variables from .env
 include .env
 export
 
-# Default target
+# ----------------------------------------------------------------------------
+# Help - Main entry point
+# ----------------------------------------------------------------------------
+
 help:
-	@echo "Ethereum STARK Verifier - Build Commands"
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║        Ethereum STARK Verifier - Available Commands            ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
 	@echo ""
-	@echo "Setup:"
-	@echo "  make setup          - Create directories and copy .env.example"
+	@echo "📦 SETUP & TESTING"
+	@echo "  make setup                     - Initialize project structure"
+	@echo "  make test                      - Run all Forge tests"
+	@echo "  make test-gas                  - Run tests with gas report"
+	@echo "  make clean                     - Clean generated files"
 	@echo ""
-	@echo "Proof Generation:"
-	@echo "  make cairo-run PROGRAM=fibonacci  - Run Cairo program (needs venv)"
-	@echo "  make prove PROGRAM=fibonacci      - Cairo run + generate proof"
-	@echo "  make prove-only PROGRAM=fibonacci - Generate proof (skip cairo-run)"
-	@echo "  make verify PROGRAM=fibonacci     - Verify proof with stone verifier"
-	@echo "  make prepare PROGRAM=fibonacci    - Prepare proof for EVM"
+	@echo "🔹 SIMPLE CAIRO PROOF (for testing)"
+	@echo "  make simple-flow PROGRAM=fibonacci   - Complete simple proof flow"
+	@echo "  make cairo-run PROGRAM=fibonacci     - Run Cairo program"
+	@echo "  make prove PROGRAM=fibonacci         - Generate STARK proof"
+	@echo "  make verify PROGRAM=fibonacci        - Verify proof with Stone"
+	@echo "  make prepare PROGRAM=fibonacci       - Prepare proof for EVM"
 	@echo ""
-	@echo "Testing:"
-	@echo "  make test           - Run Forge tests"
-	@echo "  make test-gas       - Run Forge tests with gas report"
+	@echo "🚀 BOOTLOADER PROOF (for GPS Statement Verifier)"
+	@echo "  make bootloader PROGRAM=factorial    - 🎯 Complete bootloader flow (ONE COMMAND!)"
+	@echo "  make bootloader-pie PROGRAM=factorial     - Step 1: Create PIE"
+	@echo "  make bootloader-run PROGRAM=factorial     - Step 2: Run bootloader"
+	@echo "  make bootloader-prove PROGRAM=factorial   - Step 3: Generate proof"
+	@echo "  make bootloader-prepare PROGRAM=factorial - Step 4: Prepare for EVM"
 	@echo ""
-	@echo "Complete Workflow:"
-	@echo "  make all PROGRAM=fibonacci        - Run entire pipeline (with cairo-run)"
-	@echo "  make all-skip-cairo PROGRAM=fibonacci - Run pipeline (skip cairo-run)"
+	@echo "🌐 DEPLOYMENT"
+	@echo "  Sepolia Testnet:"
+	@echo "    make deploy-sepolia-dry        - Simulate deployment"
+	@echo "    make deploy-sepolia            - Deploy to Sepolia"
+	@echo "    make deploy-sepolia-verified   - Deploy + auto-verify"
+	@echo "    make verify-proof-sepolia      - Verify proof on-chain"
 	@echo ""
-	@echo "Utilities:"
-	@echo "  make clean          - Clean generated files"
+	@echo "  Base Network:"
+	@echo "    make deploy-base-sepolia       - Deploy to Base Sepolia"
+	@echo "    make deploy-base               - Deploy to Base Mainnet (⚠️ CAUTION)"
+	@echo ""
+	@echo "🔧 UTILITIES"
+	@echo "  make benchmark                 - Run performance benchmarks"
 	@echo "  make copy-cairo-files PROGRAM=fibonacci - Copy files from stone-prover"
-	@echo "  make calc-fri-steps PROGRAM=fibonacci   - Calculate optimal FRI steps"
-	@echo "  make benchmark      - Run benchmark tests (fibonacci)"
 	@echo ""
-	@echo "Deployment (Sepolia):"
-	@echo "  make deploy-sepolia-dry       - Simulate deployment to Sepolia"
-	@echo "  make deploy-sepolia           - Deploy to Sepolia (no verification)"
-	@echo "  make deploy-sepolia-verified  - Deploy + auto-verify on Etherscan"
-	@echo "  make verify-contracts-sepolia - Verify contracts after deployment"
-	@echo "  make verify-proof-sepolia     - Verify proof on deployed contract"
-	@echo "  make view-proof-sepolia       - View proof result (read-only)"
-	@echo ""
-	@echo "Deployment (Base):"
-	@echo "  make deploy-base-sepolia-dry       - Simulate deployment to Base Sepolia"
-	@echo "  make deploy-base-sepolia           - Deploy to Base Sepolia (testnet)"
-	@echo "  make deploy-base-sepolia-verified  - Deploy + auto-verify on Basescan"
-	@echo "  make verify-contracts-base-sepolia - Verify contracts after deployment"
-	@echo "  make verify-proof-base-sepolia     - Verify proof on deployed contract"
-	@echo "  make deploy-base                   - Deploy to Base Mainnet (⚠️  CAUTION)"
 
-# Setup project
+# ----------------------------------------------------------------------------
+# Setup & Maintenance
+# ----------------------------------------------------------------------------
+
 setup:
-	@echo "Setting up project structure..."
+	@echo "🔧 Setting up project structure..."
 	@mkdir -p $(WORK_DIR)
+	@mkdir -p bootloader
 	@mkdir -p examples
-	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env file"; fi
-	@echo "Building tools..."
+	@if [ ! -f .env ]; then cp .env.example .env; echo "✓ Created .env file"; fi
+	@echo "📦 Building Rust tools..."
 	@cargo build --release --workspace 2>&1 | tail -1
-	@echo "Setup complete!"
+	@echo "✅ Setup complete!"
 
-# Clean generated files
 clean:
-	@echo "Cleaning generated files..."
+	@echo "🧹 Cleaning generated files..."
 	@rm -rf $(WORK_DIR)/*
+	@rm -rf bootloader/*.bin bootloader/*_input.json bootloader/*_public_input.json
 	@rm -f annotated_proof.json input.json
-	@echo "Clean complete!"
+	@echo "✅ Clean complete!"
 
-# Generate Cairo trace and memory
+# ----------------------------------------------------------------------------
+# Simple Cairo Proof Workflow (for testing individual programs)
+# ----------------------------------------------------------------------------
+
+# Complete simple proof flow in one command
+simple-flow:
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set. Use: make simple-flow PROGRAM=fibonacci"; exit 1; fi
+	@echo "🚀 Starting simple proof flow for: $(PROGRAM)"
+	@$(MAKE) setup
+	@if [ -f "$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_private_input.json" ]; then \
+		echo "📁 Cairo files found, skipping cairo-run..."; \
+		$(MAKE) prove-only PROGRAM=$(PROGRAM); \
+	else \
+		echo "▶️  Running Cairo program..."; \
+		$(MAKE) prove PROGRAM=$(PROGRAM); \
+	fi
+	@$(MAKE) prepare PROGRAM=$(PROGRAM)
+	@echo ""
+	@echo "✅ Simple proof flow complete!"
+	@echo "   📄 Proof: $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json"
+	@echo "   📄 EVM Input: $(WORK_DIR)/$(PROGRAM)/input.json"
+	@echo "   ▶️  Run 'make test' to verify the proof"
+
+# Step 1: Run Cairo program to generate trace/memory
 cairo-run:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make cairo-run PROGRAM=fibonacci"; exit 1; fi
-	@echo "Running Cairo program: $(PROGRAM)"
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
+	@echo "▶️  Running Cairo program: $(PROGRAM)"
 	@mkdir -p $(WORK_DIR)/$(PROGRAM)
 	$(CAIRO_RUN) \
 		--program=examples/$(PROGRAM)/$(PROGRAM)_compiled.json \
@@ -84,31 +128,18 @@ cairo-run:
 		--print_output \
 		--proof_mode
 
-# Generate STARK proof (with Cairo run)
+# Step 2: Generate STARK proof (with Cairo run)
 prove: cairo-run
 	@$(MAKE) prove-only PROGRAM=$(PROGRAM)
 
-# Calculate optimal FRI steps
-calc-fri-steps:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set"; exit 1; fi
-	@if [ -f "$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_public_input.json" ]; then \
-		echo "Calculating optimal FRI steps..."; \
-		./target/release/calculate-fri-steps \
-			--params-file $(PROVER_PARAMS) \
-			--public-input $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_public_input.json; \
-	else \
-		echo "Skipping FRI calculation (no public_input yet)"; \
-	fi
-
-# Generate STARK proof (skip Cairo run)
+# Step 2b: Generate STARK proof (skip Cairo run)
 prove-only:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make prove-only PROGRAM=fibonacci"; exit 1; fi
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
 	@if [ ! -f "$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_private_input.json" ]; then \
-		echo "Error: Cairo files not found. Run 'make cairo-run PROGRAM=$(PROGRAM)' first or copy files from stone-prover"; \
+		echo "❌ Error: Cairo files not found. Run 'make cairo-run PROGRAM=$(PROGRAM)' first"; \
 		exit 1; \
 	fi
-	@$(MAKE) calc-fri-steps PROGRAM=$(PROGRAM)
-	@echo "Generating STARK proof for: $(PROGRAM)"
+	@echo "🔐 Generating STARK proof for: $(PROGRAM)"
 	$(CPU_AIR_PROVER) \
 		--out_file=$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json \
 		--private_input_file=$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_private_input.json \
@@ -116,101 +147,88 @@ prove-only:
 		--prover_config_file=$(PROVER_CONFIG) \
 		--parameter_file=$(PROVER_PARAMS) \
 		--generate_annotations true
-	@echo "Proof generated: $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json"
+	@echo "✅ Proof generated: $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json"
 
-# Verify proof with Stone verifier
+# Step 3: Verify proof with Stone verifier
 verify:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make verify PROGRAM=fibonacci"; exit 1; fi
-	@echo "Verifying STARK proof for: $(PROGRAM)"
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
+	@echo "🔍 Verifying STARK proof for: $(PROGRAM)"
 	$(CPU_AIR_VERIFIER) \
 		--in_file=$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json \
 		--extra_output_file=$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_extra_output.json \
 		--annotation_file=$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_annotation_file.json
-	@echo "Verification complete!"
+	@echo "✅ Verification complete!"
 
-# Prepare proof for EVM
+# Step 4: Prepare proof for EVM
 prepare: verify
-	@echo "Preparing annotated proof for EVM..."
+	@echo "📦 Preparing proof for EVM..."
 	$(STARK_EVM_ADAPTER) gen-annotated-proof \
 		--stone-proof-file $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json \
 		--stone-annotation-file $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_annotation_file.json \
 		--stone-extra-annotation-file $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_extra_output.json \
 		--output $(WORK_DIR)/$(PROGRAM)/annotated_proof.json
-	@echo "Generating EVM input..."
 	@cargo run --package prepare-input --bin prepare-input \
 		$(WORK_DIR)/$(PROGRAM)/annotated_proof.json \
 		$(WORK_DIR)/$(PROGRAM)/input.json
 	@ln -sf $(WORK_DIR)/$(PROGRAM)/annotated_proof.json annotated_proof.json
 	@ln -sf $(WORK_DIR)/$(PROGRAM)/input.json input.json
-	@echo "EVM proof ready: $(WORK_DIR)/$(PROGRAM)/input.json"
+	@echo "✅ EVM proof ready: $(WORK_DIR)/$(PROGRAM)/input.json"
 
-# Run forge tests
-test:
-	@forge test
+# ----------------------------------------------------------------------------
+# Bootloader Proof Workflow (for GPS Statement Verifier)
+# ----------------------------------------------------------------------------
 
-# Run forge tests with gas report
-test-gas:
-	@forge test --gas-report
-
-# Complete workflow (with cairo-run)
-all: setup prove prepare test-gas
+# 🎯 ONE COMMAND - Complete bootloader flow!
+bootloader:
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set. Use: make bootloader PROGRAM=factorial"; exit 1; fi
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║         🚀 Starting BOOTLOADER PROOF workflow                  ║"
+	@echo "║            Program: $(PROGRAM)                                 ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
 	@echo ""
-	@echo "✓ Complete workflow finished!"
-	@echo "  Proof: $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json"
-	@echo "  EVM Input: $(WORK_DIR)/$(PROGRAM)/input.json"
-
-# Complete workflow (skip cairo-run)
-all-skip-cairo: setup prove-only prepare test-gas
-	@echo ""
-	@echo "✓ Complete workflow finished!"
-	@echo "  Proof: $(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json"
-	@echo "  EVM Input: $(WORK_DIR)/$(PROGRAM)/input.json"
-
-# Copy Cairo files from stone-prover
-copy-cairo-files:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set"; exit 1; fi
-	@if [ -z "$(STONE_PROVER_DIR)" ]; then echo "Error: STONE_PROVER_DIR not set in .env"; exit 1; fi
-	@echo "Copying Cairo files from stone-prover..."
-	@mkdir -p $(WORK_DIR)/$(PROGRAM)
-	@cp $(STONE_PROVER_DIR)/e2e_test/CairoZero/$(PROGRAM)_public_input.json $(WORK_DIR)/$(PROGRAM)/ 2>/dev/null || true
-	@cp $(STONE_PROVER_DIR)/e2e_test/CairoZero/$(PROGRAM)_private_input.json $(WORK_DIR)/$(PROGRAM)/ 2>/dev/null || true
-	@cp $(STONE_PROVER_DIR)/e2e_test/CairoZero/$(PROGRAM)_trace.bin $(WORK_DIR)/$(PROGRAM)/ 2>/dev/null || true
-	@cp $(STONE_PROVER_DIR)/e2e_test/CairoZero/$(PROGRAM)_memory.bin $(WORK_DIR)/$(PROGRAM)/ 2>/dev/null || true
-	@echo "Files copied!"
-
-# Quick test (skip Cairo run if files exist)
-quick-test:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set"; exit 1; fi
-	@if [ ! -f "$(WORK_DIR)/$(PROGRAM)/$(PROGRAM)_proof.json" ]; then \
-		echo "Proof not found, running full pipeline..."; \
-		make all PROGRAM=$(PROGRAM); \
+	@# Step 1: Create PIE if needed
+	@if [ ! -f "bootloader/$(PROGRAM).zip" ]; then \
+		echo "📦 Step 1/4: Creating PIE..."; \
+		$(MAKE) bootloader-pie PROGRAM=$(PROGRAM); \
 	else \
-		echo "Using existing proof, preparing for EVM..."; \
-		make prepare PROGRAM=$(PROGRAM); \
-		make test-gas; \
+		echo "✓ Step 1/4: PIE already exists"; \
 	fi
-
-# Run benchmarks
-benchmark:
-	@echo "Running benchmarks..."
-	@./scripts/benchmark.sh 10 100 1000 10000 100000 1000000
-
-# ======================================
-# Bootloader Proof Generation
-# ======================================
+	@# Step 2: Run bootloader if needed
+	@if [ ! -f "bootloader/$(PROGRAM)_private_input.json" ]; then \
+		echo "▶️  Step 2/4: Running bootloader..."; \
+		$(MAKE) bootloader-run PROGRAM=$(PROGRAM); \
+	else \
+		echo "✓ Step 2/4: Bootloader execution files exist"; \
+	fi
+	@# Step 3: Generate proof if needed
+	@if [ ! -f "$(WORK_DIR)/bootloader/$(PROGRAM)_proof.json" ]; then \
+		echo "🔐 Step 3/4: Generating proof..."; \
+		$(MAKE) bootloader-prove PROGRAM=$(PROGRAM); \
+	else \
+		echo "✓ Step 3/4: Proof already exists"; \
+	fi
+	@# Step 4: Always prepare (this is fast)
+	@echo "📦 Step 4/4: Preparing for EVM..."
+	@$(MAKE) bootloader-prepare-only PROGRAM=$(PROGRAM)
+	@echo ""
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║                  ✅ BOOTLOADER PROOF READY!                    ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
+	@echo "📄 Files:"
+	@echo "   PIE: bootloader/$(PROGRAM).zip"
+	@echo "   Proof: $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json"
+	@echo "   EVM Input: $(WORK_DIR)/bootloader/input.json"
+	@echo ""
+	@echo "▶️  Next step: make test-gas"
 
 # Step 1: Generate PIE from a Cairo program
-create-pie:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make create-pie PROGRAM=factorial"; exit 1; fi
+bootloader-pie:
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
 	@if [ ! -f "examples/$(PROGRAM)/$(PROGRAM)_compiled.json" ]; then \
-		echo "Error: Program not found: examples/$(PROGRAM)/$(PROGRAM)_compiled.json"; \
+		echo "❌ Error: Program not found: examples/$(PROGRAM)/$(PROGRAM)_compiled.json"; \
 		exit 1; \
 	fi
-	@if [ ! -f "examples/$(PROGRAM)/$(PROGRAM)_input.json" ]; then \
-		echo "Error: Input file not found: examples/$(PROGRAM)/$(PROGRAM)_input.json"; \
-		exit 1; \
-	fi
-	@echo "Generating PIE from $(PROGRAM)..."
+	@echo "📦 Creating PIE from $(PROGRAM)..."
 	@mkdir -p bootloader
 	@cd $(STONE_PROVER_DIR) && \
 		source $(VENV_NAME)/bin/activate && \
@@ -219,22 +237,24 @@ create-pie:
 			--program=$(CURDIR)/examples/$(PROGRAM)/$(PROGRAM)_compiled.json \
 			--layout=starknet \
 			--program_input=$(CURDIR)/examples/$(PROGRAM)/$(PROGRAM)_input.json
-	@echo "PIE created: bootloader/$(PROGRAM).zip"
-	@echo "Updating bootloader_input.json to reference $(PROGRAM).zip..."
-	@printf '{\n    "tasks": [\n      {\n        "type": "CairoPiePath",\n        "path": "%s/bootloader/%s.zip",\n        "use_poseidon": true\n      }\n    ],\n    "single_page": true\n  }\n' "$(CURDIR)" "$(PROGRAM)" > bootloader/bootloader_input.json
-	@echo "✓ PIE ready. Next: make bootloader-cairo-run PROGRAM=$(PROGRAM)"
+	@echo "📝 Creating bootloader_input.json..."
+	@python3 scripts/create_bootloader_input.py \
+		examples/$(PROGRAM)/$(PROGRAM)_compiled.json \
+		examples/$(PROGRAM)/$(PROGRAM)_input.json \
+		bootloader/bootloader_input.json
+	@echo "✅ PIE created: bootloader/$(PROGRAM).zip"
 
-# Step 2: Run bootloader with PIE to generate trace and memory files
-bootloader-cairo-run:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make bootloader-cairo-run PROGRAM=factorial"; exit 1; fi
+# Step 2: Run bootloader with PIE
+bootloader-run:
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
 	@if [ ! -f "bootloader/bootloader_input.json" ]; then \
-		echo "Error: bootloader_input.json not found. Run 'make create-pie PROGRAM=$(PROGRAM)' first"; \
+		echo "❌ Error: bootloader_input.json not found. Run 'make bootloader-pie PROGRAM=$(PROGRAM)' first"; \
 		exit 1; \
 	fi
-	@echo "Running bootloader for: $(PROGRAM)"
+	@echo "▶️  Running bootloader for: $(PROGRAM)"
 	@mkdir -p bootloader
 	@if [ -n "$(CAIRO_LANG_DIR)" ] && [ -d "$(CAIRO_LANG_DIR)" ]; then \
-		echo "Using cairo-lang from: $(CAIRO_LANG_DIR)"; \
+		echo "   Using cairo-lang from: $(CAIRO_LANG_DIR)"; \
 		cd $(CAIRO_LANG_DIR) && \
 		source $(CAIRO_LANG_VENV)/bin/activate && \
 		python src/starkware/cairo/lang/scripts/cairo-run \
@@ -249,7 +269,7 @@ bootloader-cairo-run:
 			--memory_file=$(CURDIR)/bootloader/$(PROGRAM)_memory.bin \
 			--proof_mode; \
 	else \
-		echo "CAIRO_LANG_DIR not set or doesn't exist, using stone-prover"; \
+		echo "   Using stone-prover"; \
 		cd $(STONE_PROVER_DIR) && \
 		source $(VENV_NAME)/bin/activate && \
 		python src/starkware/cairo/lang/scripts/cairo-run \
@@ -264,21 +284,16 @@ bootloader-cairo-run:
 			--memory_file=$(CURDIR)/bootloader/$(PROGRAM)_memory.bin \
 			--proof_mode; \
 	fi
-	@echo "✓ Bootloader execution complete"
-	@echo "  Public input: bootloader/$(PROGRAM)_public_input.json"
-	@echo "  Private input: bootloader/$(PROGRAM)_private_input.json"
-	@echo "  Trace: bootloader/$(PROGRAM)_trace.bin"
-	@echo "  Memory: bootloader/$(PROGRAM)_memory.bin"
-	@echo "Next: make bootloader-prove PROGRAM=$(PROGRAM)"
+	@echo "✅ Bootloader execution complete"
 
-# Step 3: Generate STARK proof from bootloader files
+# Step 3: Generate STARK proof from bootloader
 bootloader-prove:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make bootloader-prove PROGRAM=fibonacci"; exit 1; fi
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
 	@if [ ! -f "bootloader/$(PROGRAM)_private_input.json" ]; then \
-		echo "Error: Bootloader files not found. Run 'make bootloader-cairo-run PROGRAM=$(PROGRAM)' first"; \
+		echo "❌ Error: Bootloader files not found. Run 'make bootloader-run PROGRAM=$(PROGRAM)' first"; \
 		exit 1; \
 	fi
-	@echo "Generating STARK proof from bootloader for: $(PROGRAM)"
+	@echo "🔐 Generating STARK proof from bootloader for: $(PROGRAM)"
 	@mkdir -p $(WORK_DIR)/bootloader
 	$(CPU_AIR_PROVER) \
 		--out_file=$(WORK_DIR)/bootloader/$(PROGRAM)_proof.json \
@@ -287,71 +302,83 @@ bootloader-prove:
 		--prover_config_file=$(PROVER_CONFIG) \
 		--parameter_file=$(PROVER_PARAMS) \
 		--generate_annotations true
-	@echo "Bootloader proof generated: $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json"
+	@echo "✅ Bootloader proof generated: $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json"
 
-# Verify bootloader proof
+# Step 4: Verify bootloader proof
 bootloader-verify:
-	@if [ -z "$(PROGRAM)" ]; then echo "Error: PROGRAM not set. Use: make bootloader-verify PROGRAM=fibonacci"; exit 1; fi
-	@echo "Verifying bootloader STARK proof for: $(PROGRAM)"
+	@if [ -z "$(PROGRAM)" ]; then echo "❌ Error: PROGRAM not set"; exit 1; fi
+	@echo "🔍 Verifying bootloader STARK proof for: $(PROGRAM)"
 	$(CPU_AIR_VERIFIER) \
 		--in_file=$(WORK_DIR)/bootloader/$(PROGRAM)_proof.json \
 		--extra_output_file=$(WORK_DIR)/bootloader/$(PROGRAM)_extra_output.json \
 		--annotation_file=$(WORK_DIR)/bootloader/$(PROGRAM)_annotation_file.json
-	@echo "Bootloader verification complete!"
+	@echo "✅ Bootloader verification complete!"
 
-# Prepare bootloader proof for EVM
-bootloader-prepare: bootloader-verify
-	@echo "Preparing bootloader annotated proof for EVM..."
+# Step 5: Prepare bootloader proof for EVM
+bootloader-prepare: bootloader-verify bootloader-prepare-only
+
+bootloader-prepare-only:
+	@echo "📦 Preparing bootloader proof for EVM..."
 	$(STARK_EVM_ADAPTER) gen-annotated-proof \
 		--stone-proof-file $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json \
 		--stone-annotation-file $(WORK_DIR)/bootloader/$(PROGRAM)_annotation_file.json \
 		--stone-extra-annotation-file $(WORK_DIR)/bootloader/$(PROGRAM)_extra_output.json \
 		--output $(WORK_DIR)/bootloader/annotated_proof.json
-	@echo "Generating EVM input for bootloader..."
 	@cargo run --package prepare-input --bin prepare-input \
 		$(WORK_DIR)/bootloader/annotated_proof.json \
 		$(WORK_DIR)/bootloader/input.json
 	@ln -sf $(WORK_DIR)/bootloader/annotated_proof.json annotated_proof.json
 	@ln -sf $(WORK_DIR)/bootloader/input.json input.json
-	@echo "Bootloader EVM proof ready: $(WORK_DIR)/bootloader/input.json"
+	@echo "✅ Bootloader EVM proof ready: $(WORK_DIR)/bootloader/input.json"
 
-# Complete bootloader workflow (assumes PIE already created)
-# To start from scratch: make create-pie PROGRAM=factorial && make bootloader-all PROGRAM=factorial
-bootloader-all: bootloader-cairo-run bootloader-prove bootloader-prepare
-	@echo ""
-	@echo "✓ Bootloader workflow complete!"
-	@echo "  PIE: bootloader/$(PROGRAM).zip"
-	@echo "  Proof: $(WORK_DIR)/bootloader/$(PROGRAM)_proof.json"
-	@echo "  EVM Input: $(WORK_DIR)/bootloader/input.json"
+# ----------------------------------------------------------------------------
+# Testing
+# ----------------------------------------------------------------------------
 
-# Deployment targets
-deploy-sepolia:
-	@echo "Deploying to Sepolia testnet..."
+test:
+	@echo "🧪 Running Forge tests..."
+	@forge test
+
+test-gas:
+	@echo "🧪 Running Forge tests with gas report..."
+	@forge test --gas-report
+
+# ----------------------------------------------------------------------------
+# Deployment - Sepolia Testnet
+# ----------------------------------------------------------------------------
+
+deploy-sepolia-dry:
+	@echo "🔍 Dry run deployment to Sepolia..."
 	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		echo "❌ Error: .env.deploy not found. Copy .env.deploy.example"; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$SEPOLIA_RPC_URL \
+		-vvvv
+
+deploy-sepolia:
+	@echo "🚀 Deploying to Sepolia testnet..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "❌ Error: .env.deploy not found. Copy .env.deploy.example"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
 		--rpc-url $$SEPOLIA_RPC_URL \
 		--broadcast \
 		-vvvv
-	@echo ""
-	@echo "Deployment complete! To verify contracts on Etherscan, run:"
-	@echo "  make verify-contracts-sepolia"
+	@echo "✅ Deployment complete! Verify with: make verify-contracts-sepolia"
 
-# Deploy with automatic Etherscan verification
 deploy-sepolia-verified:
-	@echo "Deploying to Sepolia with verification..."
+	@echo "🚀 Deploying to Sepolia with verification..."
 	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		echo "❌ Error: .env.deploy not found"; \
 		exit 1; \
 	fi
-	@if [ -z "$$ETHERSCAN_API_KEY" ]; then \
-		set -a && source .env.deploy && set +a; \
-		if [ -z "$$ETHERSCAN_API_KEY" ]; then \
-			echo "Error: ETHERSCAN_API_KEY not set in .env.deploy"; \
-			exit 1; \
-		fi; \
+	@set -a && source .env.deploy && set +a && \
+	if [ -z "$$ETHERSCAN_API_KEY" ]; then \
+		echo "❌ Error: ETHERSCAN_API_KEY not set in .env.deploy"; \
+		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
 		--rpc-url $$SEPOLIA_RPC_URL \
@@ -360,59 +387,24 @@ deploy-sepolia-verified:
 		--etherscan-api-key $$ETHERSCAN_API_KEY \
 		-vvvv
 
-deploy-sepolia-dry:
-	@echo "Dry run deployment to Sepolia..."
-	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
-		exit 1; \
-	fi
-	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
-		--rpc-url $$SEPOLIA_RPC_URL \
-		-vvvv
-
 verify-contracts-sepolia:
-	@echo "Verifying all deployed contracts on Etherscan..."
-	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found."; \
-		exit 1; \
-	fi
-	@if [ ! -f deployment-addresses.json ]; then \
-		echo "Error: deployment-addresses.json not found. Deploy first."; \
+	@echo "🔍 Verifying contracts on Etherscan..."
+	@if [ ! -f .env.deploy ] || [ ! -f deployment-addresses.json ]; then \
+		echo "❌ Error: Missing .env.deploy or deployment-addresses.json"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && \
 	VERIFIER=$$(cat deployment-addresses.json | jq -r '.verifier') && \
-	echo "Verifying CpuVerifier at $$VERIFIER..." && \
 	forge verify-contract $$VERIFIER \
 		src/layout_starknet/CpuVerifier.sol:CpuVerifier \
 		--chain sepolia \
 		--etherscan-api-key $$ETHERSCAN_API_KEY \
 		--watch
 
-verify-single-sepolia:
-	@echo "Verifying single contract on Sepolia..."
-	@if [ -z "$(CONTRACT)" ]; then \
-		echo "Error: CONTRACT address not set. Use: make verify-single-sepolia CONTRACT=0x..."; \
-		exit 1; \
-	fi
-	@source .env.deploy && forge verify-contract $(CONTRACT) \
-		src/layout_starknet/CpuVerifier.sol:CpuVerifier \
-		--chain sepolia \
-		--etherscan-api-key $$ETHERSCAN_API_KEY
-
-# Verify proof on deployed contract
 verify-proof-sepolia:
-	@echo "Verifying proof on deployed Sepolia contract..."
-	@if [ \! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found."; \
-		exit 1; \
-	fi
-	@if [ \! -f deployment-addresses.json ]; then \
-		echo "Error: deployment-addresses.json not found. Deploy first with: make deploy-sepolia"; \
-		exit 1; \
-	fi
-	@if [ \! -f input.json ]; then \
-		echo "Error: input.json not found. Generate proof first with: make prepare PROGRAM=fibonacci"; \
+	@echo "🔍 Verifying proof on deployed Sepolia contract..."
+	@if [ ! -f .env.deploy ] || [ ! -f deployment-addresses.json ] || [ ! -f input.json ]; then \
+		echo "❌ Error: Missing required files"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/VerifyProof.s.sol:VerifyProofScript \
@@ -420,51 +412,52 @@ verify-proof-sepolia:
 		--broadcast \
 		-vvvv
 
-# View proof on-chain (read-only, no gas cost)
 view-proof-sepolia:
-	@echo "Viewing proof verification result (read-only)..."
-	@if [ \! -f deployment-addresses.json ]; then \
-		echo "Error: deployment-addresses.json not found."; \
+	@echo "👁️  Viewing proof verification result (read-only)..."
+	@if [ ! -f deployment-addresses.json ]; then \
+		echo "❌ Error: deployment-addresses.json not found"; \
 		exit 1; \
 	fi
-	@VERIFIER=$$(cat deployment-addresses.json | jq -r ".verifier") && \
-	set -a && source .env.deploy && set +a && \
-	forge script script/VerifyProof.s.sol:VerifyProofScript \
+	@set -a && source .env.deploy && set +a && forge script script/VerifyProof.s.sol:VerifyProofScript \
 		--rpc-url $$SEPOLIA_RPC_URL \
 		-vvv
 
-# ======================================
-# Base Network Deployment Targets
-# ======================================
+# ----------------------------------------------------------------------------
+# Deployment - Base Network
+# ----------------------------------------------------------------------------
 
-# Deploy to Base Sepolia (testnet)
-deploy-base-sepolia:
-	@echo "Deploying to Base Sepolia testnet..."
+deploy-base-sepolia-dry:
+	@echo "🔍 Dry run deployment to Base Sepolia..."
 	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		echo "❌ Error: .env.deploy not found"; \
+		exit 1; \
+	fi
+	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
+		--rpc-url $$BASE_SEPOLIA_RPC_URL \
+		-vvvv
+
+deploy-base-sepolia:
+	@echo "🚀 Deploying to Base Sepolia testnet..."
+	@if [ ! -f .env.deploy ]; then \
+		echo "❌ Error: .env.deploy not found"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
 		--rpc-url $$BASE_SEPOLIA_RPC_URL \
 		--broadcast \
 		-vvvv
-	@echo ""
-	@echo "Deployment complete! To verify contracts on Basescan, run:"
-	@echo "  make verify-contracts-base-sepolia"
+	@echo "✅ Deployment complete! Verify with: make verify-contracts-base-sepolia"
 
-# Deploy to Base Sepolia with automatic verification
 deploy-base-sepolia-verified:
-	@echo "Deploying to Base Sepolia with verification..."
+	@echo "🚀 Deploying to Base Sepolia with verification..."
 	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		echo "❌ Error: .env.deploy not found"; \
 		exit 1; \
 	fi
-	@if [ -z "$$BASESCAN_API_KEY" ]; then \
-		set -a && source .env.deploy && set +a; \
-		if [ -z "$$BASESCAN_API_KEY" ]; then \
-			echo "Error: BASESCAN_API_KEY not set in .env.deploy"; \
-			exit 1; \
-		fi; \
+	@set -a && source .env.deploy && set +a && \
+	if [ -z "$$BASESCAN_API_KEY" ]; then \
+		echo "❌ Error: BASESCAN_API_KEY not set in .env.deploy"; \
+		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
 		--rpc-url $$BASE_SEPOLIA_RPC_URL \
@@ -474,31 +467,14 @@ deploy-base-sepolia-verified:
 		--etherscan-api-key $$BASESCAN_API_KEY \
 		-vvvv
 
-# Dry run deployment to Base Sepolia
-deploy-base-sepolia-dry:
-	@echo "Dry run deployment to Base Sepolia..."
-	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
-		exit 1; \
-	fi
-	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
-		--rpc-url $$BASE_SEPOLIA_RPC_URL \
-		-vvvv
-
-# Verify contracts on Base Sepolia
 verify-contracts-base-sepolia:
-	@echo "Verifying all deployed contracts on Basescan..."
-	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found."; \
-		exit 1; \
-	fi
-	@if [ ! -f deployment-addresses.json ]; then \
-		echo "Error: deployment-addresses.json not found. Deploy first."; \
+	@echo "🔍 Verifying contracts on Basescan..."
+	@if [ ! -f .env.deploy ] || [ ! -f deployment-addresses.json ]; then \
+		echo "❌ Error: Missing .env.deploy or deployment-addresses.json"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && \
 	VERIFIER=$$(cat deployment-addresses.json | jq -r '.verifier') && \
-	echo "Verifying CpuVerifier at $$VERIFIER..." && \
 	forge verify-contract $$VERIFIER \
 		src/layout_starknet/CpuVerifier.sol:CpuVerifier \
 		--chain-id 84532 \
@@ -506,19 +482,10 @@ verify-contracts-base-sepolia:
 		--etherscan-api-key $$BASESCAN_API_KEY \
 		--watch
 
-# Verify proof on deployed Base Sepolia contract
 verify-proof-base-sepolia:
-	@echo "Verifying proof on deployed Base Sepolia contract..."
-	@if [ \! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found."; \
-		exit 1; \
-	fi
-	@if [ \! -f deployment-addresses.json ]; then \
-		echo "Error: deployment-addresses.json not found. Deploy first with: make deploy-base-sepolia"; \
-		exit 1; \
-	fi
-	@if [ \! -f input.json ]; then \
-		echo "Error: input.json not found. Generate proof first with: make prepare PROGRAM=fibonacci"; \
+	@echo "🔍 Verifying proof on deployed Base Sepolia contract..."
+	@if [ ! -f .env.deploy ] || [ ! -f deployment-addresses.json ] || [ ! -f input.json ]; then \
+		echo "❌ Error: Missing required files"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/VerifyProof.s.sol:VerifyProofScript \
@@ -526,23 +493,51 @@ verify-proof-base-sepolia:
 		--broadcast \
 		-vvvv
 
-# Deploy to Base Mainnet
 deploy-base:
-	@echo "Deploying to Base Mainnet..."
-	@echo "WARNING: This will deploy to MAINNET. Make sure you have enough ETH!"
-	@read -p "Are you sure you want to deploy to mainnet? [y/N] " -n 1 -r; \
+	@echo "⚠️  WARNING: Deploying to Base MAINNET!"
+	@echo "Make sure you have enough ETH!"
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
 	echo; \
 	if [[ ! $$REPLY =~ ^[Yy]$$ ]]; then \
 		echo "Deployment cancelled."; \
 		exit 1; \
 	fi
 	@if [ ! -f .env.deploy ]; then \
-		echo "Error: .env.deploy not found. Copy .env.deploy.example and fill in your values."; \
+		echo "❌ Error: .env.deploy not found"; \
 		exit 1; \
 	fi
 	@set -a && source .env.deploy && set +a && forge script script/Deploy.s.sol:DeployScript \
 		--rpc-url $$BASE_RPC_URL \
 		--broadcast \
 		-vvvv
-	@echo ""
-	@echo "Mainnet deployment complete!"
+
+# ----------------------------------------------------------------------------
+# Utilities
+# ----------------------------------------------------------------------------
+
+copy-cairo-files:
+	@if [ -z "$(PROGRAM)" ] || [ -z "$(STONE_PROVER_DIR)" ]; then \
+		echo "❌ Error: PROGRAM or STONE_PROVER_DIR not set"; \
+		exit 1; \
+	fi
+	@echo "📁 Copying Cairo files from stone-prover..."
+	@mkdir -p $(WORK_DIR)/$(PROGRAM)
+	@cp $(STONE_PROVER_DIR)/e2e_test/CairoZero/$(PROGRAM)_*.json $(WORK_DIR)/$(PROGRAM)/ 2>/dev/null || true
+	@cp $(STONE_PROVER_DIR)/e2e_test/CairoZero/$(PROGRAM)_*.bin $(WORK_DIR)/$(PROGRAM)/ 2>/dev/null || true
+	@echo "✅ Files copied!"
+
+benchmark:
+	@echo "⚡ Running benchmarks..."
+	@./scripts/benchmark.sh 10 100 1000 10000 100000 1000000
+
+# ----------------------------------------------------------------------------
+# Backward compatibility aliases (deprecated)
+# ----------------------------------------------------------------------------
+
+# Old targets that still work but redirect to new names
+flow: simple-flow
+all: simple-flow test-gas
+bootloader-flow: bootloader
+bootloader-all: bootloader
+create-pie: bootloader-pie
+bootloader-cairo-run: bootloader-run
