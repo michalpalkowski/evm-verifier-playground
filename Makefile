@@ -343,6 +343,78 @@ test-gas:
 	@echo "🧪 Running Forge tests with gas report..."
 	@forge test --gas-report
 
+# Test specific program (fibonacci, factorial)
+# Uses pre-prepared examples from examples/ directory
+test-program:
+	@if [ -z "$(PROGRAM)" ]; then \
+		echo "❌ Error: PROGRAM not set. Use: make test-program PROGRAM=fibonacci"; \
+		exit 1; \
+	fi
+	@if [ ! -f "examples/$(PROGRAM)/input.json" ]; then \
+		echo "❌ Error: input.json not found in examples/$(PROGRAM)/"; \
+		echo "Available examples: fibonacci, factorial"; \
+		exit 1; \
+	fi
+	@echo "🧪 Testing program: $(PROGRAM)"
+	@cp examples/$(PROGRAM)/input.json input.json
+	@forge test --match-test test_VerifyProof
+	@echo "✅ Test complete"
+
+# Test bootloader program (factorial, fibonacci)
+# Uses pre-prepared examples from examples/ directory
+test-program-bootloader:
+	@if [ -z "$(PROGRAM)" ]; then \
+		echo "❌ Error: PROGRAM not set. Use: make test-program-bootloader PROGRAM=factorial"; \
+		exit 1; \
+	fi
+	@if [ ! -f "examples/$(PROGRAM)-bootloader/input.json" ]; then \
+		echo "❌ Error: input.json not found in examples/$(PROGRAM)-bootloader/"; \
+		echo "Available bootloader examples: fibonacci-bootloader, factorial-bootloader"; \
+		exit 1; \
+	fi
+	@echo "🧪 Testing bootloader program: $(PROGRAM)"
+	@mkdir -p work/bootloader
+	@cp examples/$(PROGRAM)-bootloader/input.json work/bootloader/input.json
+	@forge test --match-test test_VerifyBootloaderProof
+	@echo "✅ Test complete"
+
+# Quick test commands for common programs
+test-fibonacci:
+	@$(MAKE) test-program PROGRAM=fibonacci
+
+test-factorial:
+	@$(MAKE) test-program PROGRAM=factorial
+
+test-fibonacci-bootloader:
+	@$(MAKE) test-program-bootloader PROGRAM=fibonacci
+
+test-factorial-bootloader:
+	@$(MAKE) test-program-bootloader PROGRAM=factorial
+
+# Update example files from work directory
+update-examples:
+	@echo "📦 Updating example files..."
+	@if [ -f "$(WORK_DIR)/fibonacci/input.json" ]; then \
+		cp $(WORK_DIR)/fibonacci/input.json examples/fibonacci/input.json && \
+		echo "✅ Updated examples/fibonacci/input.json"; \
+	fi
+	@if [ -f "$(WORK_DIR)/factorial/input.json" ]; then \
+		cp $(WORK_DIR)/factorial/input.json examples/factorial/input.json && \
+		echo "✅ Updated examples/factorial/input.json"; \
+	fi
+	@echo "📦 Preparing bootloader examples..."
+	@if [ -f "$(WORK_DIR)/bootloader/factorial_proof.json" ]; then \
+		$(MAKE) bootloader-prepare-only PROGRAM=factorial > /dev/null 2>&1 && \
+		cp $(WORK_DIR)/bootloader/input.json examples/factorial-bootloader/input.json && \
+		echo "✅ Updated examples/factorial-bootloader/input.json"; \
+	fi
+	@if [ -f "$(WORK_DIR)/bootloader/fibonacci_proof.json" ]; then \
+		$(MAKE) bootloader-prepare-only PROGRAM=fibonacci > /dev/null 2>&1 && \
+		cp $(WORK_DIR)/bootloader/input.json examples/fibonacci-bootloader/input.json && \
+		echo "✅ Updated examples/fibonacci-bootloader/input.json"; \
+	fi
+	@echo "✅ Examples updated!"
+
 # ----------------------------------------------------------------------------
 # Deployment - Sepolia Testnet
 # ----------------------------------------------------------------------------

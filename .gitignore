@@ -21,7 +21,6 @@ work/
 
 # Generated proof files in root (symlinks)
 annotated_proof.json
-input.json
 *_proof.json
 *_input.json
 *_output.json
