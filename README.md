@@ -1,100 +1,107 @@
 # Ethereum STARK Verifier
 
+## ⚠️ Project Status
+
+**This is not a production version of an EVM verifier - a production implementation can be found on the Ethereum mainnet**
+
 Generate and verify STARK proofs on Ethereum.
 
-## Quick Start
+## 🚀 Quick Start - Run Examples
+
+Choose one of the examples:
+
+### 1️⃣ Fibonacci Example
 
 ```bash
-# Setup
-make setup
-
-# Run workflow (recommended)
-make copy-cairo-files PROGRAM=fibonacci
-make all-skip-cairo PROGRAM=fibonacci
+make setup                                    # First time setup
+make copy-cairo-files PROGRAM=fibonacci       # Copy files
+make all-skip-cairo PROGRAM=fibonacci         # Generate proof and test
 ```
 
-## Requirements
+### 2️⃣ Factorial Example
 
-- Stone prover binaries (`cpu_air_prover`, `cpu_air_verifier`)
-- `stark_evm_adapter` in PATH
+```bash
+make setup                                    # First time setup
+make copy-cairo-files PROGRAM=factorial       # Copy files
+make all-skip-cairo PROGRAM=factorial         # Generate proof and test
+```
+
+### 3️⃣ Bootloader Example
+
+```bash
+make setup                                    # First time setup
+make create-pie PROGRAM=factorial              # Create PIE from Cairo program
+make bootloader-all PROGRAM=factorial         # Run bootloader and generate proof
+```
+
+---
+
+## ✅ Already Have Proofs?
+
+If you already have generated proofs, you can verify and test them (IMPORTANT: proof must be generated in layout starknet and with keccak256):
+
+### Regular Programs (Fibonacci, Factorial, etc.)
+
+```bash
+make verify PROGRAM=fibonacci           # Generate annotations with cpu_air_verifier
+make prepare PROGRAM=fibonacci          # Prepare for EVM (includes verify step)
+make test-gas                           # Real EVM verification using Solidity verifier
+```
+
+**Note:** 
+- `make verify` uses `cpu_air_verifier` to generate additional annotations needed for EVM preparation (not actual EVM verification)
+- `make prepare` converts the proof to EVM format (requires verify step)
+- `make test-gas` performs the actual on-chain verification using the Solidity verifier contract
+
+### Bootloader Programs
+
+```bash
+make bootloader-verify PROGRAM=factorial    # Generate annotations with cpu_air_verifier
+make bootloader-prepare PROGRAM=factorial  # Prepare for EVM (includes verify step)
+make test-gas                               # Real EVM verification using Solidity verifier
+```
+
+**Note:** Proofs should be in `work/<PROGRAM>/<PROGRAM>_proof.json` (or `work/bootloader/<PROGRAM>_proof.json` for bootloader).
+
+---
+
+## 📋 Requirements
+
+- Stone prover binaries in programs/ (`cpu_air_prover`, `cpu_air_verifier`)
+- `stark_evm_adapter` in PATH - converts Stone prover proofs to EVM format (used in `make prepare`)
 - Rust & Foundry
-- `bc` (for benchmarks): `sudo dnf install bc`
 
-## Usage
+## 📚 More Commands
 
-### Simple Workflow (No Cairo Run)
-
+### Proof Generation
 ```bash
-make copy-cairo-files PROGRAM=fibonacci   # Copy files from stone-prover
-make prove-only PROGRAM=fibonacci         # Generate proof (auto-calculates FRI)
-make prepare PROGRAM=fibonacci            # Prepare for EVM
-make test-gas                             # Test on-chain
-```
-
-Or one command:
-```bash
-make all-skip-cairo PROGRAM=fibonacci
-```
-
-### Full Workflow (With Cairo Run)
-
-```bash
-make all PROGRAM=fibonacci
-```
-
-### Bootloader Workflow
-
-Generate PIE from Cairo program, run through bootloader, and prove:
-
-```bash
-make create-pie PROGRAM=factorial          # Create PIE from Cairo program
-make bootloader-cairo-run PROGRAM=factorial # Run bootloader with PIE
-make bootloader-prove PROGRAM=factorial     # Generate proof
-make bootloader-prepare PROGRAM=factorial   # Prepare for EVM
-```
-
-Or all steps:
-```bash
-make create-pie PROGRAM=factorial && make bootloader-all PROGRAM=factorial
-```
-
-## Commands
-
-```bash
-make help                              # Show all commands
-make setup                             # Initial setup
-make clean                             # Clean generated files
-
-# Cairo (optional)
-make cairo-run PROGRAM=<name>          # Run Cairo
-make copy-cairo-files PROGRAM=<name>   # Copy from stone-prover
-
-# Proof generation
+make copy-cairo-files PROGRAM=<name>   # Copy files from stone-prover
 make prove-only PROGRAM=<name>         # Generate proof (auto FRI)
 make verify PROGRAM=<name>             # Verify proof
 make prepare PROGRAM=<name>            # Prepare for EVM
+make all-skip-cairo PROGRAM=<name>     # Full pipeline (skip cairo-run)
+make all PROGRAM=<name>                # Full pipeline (with cairo-run)
+```
 
-# Testing
-make test                              # Run tests
-make test-gas                          # With gas report
-
-# Workflows
-make all PROGRAM=<name>                # Full pipeline
-make all-skip-cairo PROGRAM=<name>     # Skip cairo-run
-
-# Bootloader
+### Bootloader
+```bash
 make create-pie PROGRAM=<name>         # Create PIE from program
 make bootloader-cairo-run PROGRAM=<name> # Run bootloader with PIE
-make bootloader-prove PROGRAM=<name>   # Prove bootloader execution
+make bootloader-prove PROGRAM=<name>   # Generate bootloader proof
 make bootloader-verify PROGRAM=<name>  # Verify bootloader proof
 make bootloader-prepare PROGRAM=<name> # Prepare for EVM
 make bootloader-all PROGRAM=<name>     # Full bootloader pipeline
+```
 
-# Utilities
-make calc-fri-steps PROGRAM=<name>     # Calculate FRI steps
-make benchmark                         # Run benchmark tests
+### Testing
+```bash
+make test                              # Run tests
+make test-gas                          # Tests with gas report
+make benchmark                         # Benchmarks
+```
 
-# Deployment (Sepolia testnet)
+### Deployment (Sepolia testnet)
+```bash
 make deploy-sepolia-dry                # Simulate deployment
 make deploy-sepolia                    # Deploy to Sepolia
 make verify-proof-sepolia              # Verify proof on-chain
@@ -133,23 +140,6 @@ fri_degree = log2(n_steps / degree_bound) + 4
 fri_step_list = [0, 4, 4, 4, ..., remainder]
 ```
 
-## Project Structure
-
-```
-Ethereum_verifier/
-├── bootloader/         # Bootloader files and PIEs
-├── examples/           # Cairo programs
-├── programs/           # cpu_air_prover, cpu_air_verifier
-├── prover_settings/    # cpu_air_params.json
-├── scripts/            # calculate_fri_steps, prepare_input
-├── src/                # Solidity verifier
-├── test/               # Solidity tests
-├── work/               # Generated files (gitignored)
-├── .env                # Configuration
-├── Makefile            # Commands
-└── README.md           # This file
-```
-
 ## Adding Programs
 
 ```bash
@@ -176,17 +166,11 @@ make prepare PROGRAM=fibonacci
 make verify-proof-sepolia
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for full guide.
-
 ## Troubleshooting
-
-**Cairo not found:** Skip cairo-run with `make all-skip-cairo`
 
 **Missing files:** Run `make copy-cairo-files PROGRAM=<name>`
 
 **Permission denied:** Run `chmod +x programs/* scripts/*.sh`
-
-**Build errors:** Run `cargo build --release --workspace`
 
 ## License
 

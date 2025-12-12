@@ -27,7 +27,6 @@ pub struct PublicMemory {
     pub value: String,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PublicInput {
     layout: String,
@@ -449,11 +448,20 @@ fn prepare_public_input_without_products(
             16,
         )
         .expect("Failed to parse padding value");
-        eprintln!("DEBUG: Adding padding_addr={:x}, padding_val={:x}", padding_addr, padding_val);
+        eprintln!(
+            "DEBUG: Adding padding_addr={:x}, padding_val={:x}",
+            padding_addr, padding_val
+        );
         eprintln!("DEBUG: result.len() before padding: {}", result.len());
         result.push(padding_addr.clone());
         result.push(padding_val.clone());
-        eprintln!("DEBUG: result[{}]={:x}, result[{}]={:x}", result.len()-2, result[result.len()-2], result.len()-1, result[result.len()-1]);
+        eprintln!(
+            "DEBUG: result[{}]={:x}, result[{}]={:x}",
+            result.len() - 2,
+            result[result.len() - 2],
+            result.len() - 1,
+            result[result.len() - 1]
+        );
     } else {
         panic!("No first cell found in public memory");
     }
@@ -513,7 +521,10 @@ fn prepare_public_input_without_products(
     }
 
     // Note: page products are NOT added here - they will be added after computing z and alpha
-    eprintln!("DEBUG: prepare_public_input_without_products returns {} elements", result.len());
+    eprintln!(
+        "DEBUG: prepare_public_input_without_products returns {} elements",
+        result.len()
+    );
     eprintln!("DEBUG: Last 10 elements:");
     for i in (result.len().saturating_sub(10))..result.len() {
         eprintln!("  [{}] = {:x}", i, result[i]);
@@ -535,7 +546,10 @@ fn extract_program_output(public_input: &PublicInput) -> Vec<BigInt> {
     let mut memory: HashMap<u64, BigInt> = HashMap::new();
     for cell in &public_input.public_memory {
         let value = BigInt::parse_bytes(
-            cell.value.strip_prefix("0x").unwrap_or(&cell.value).as_bytes(),
+            cell.value
+                .strip_prefix("0x")
+                .unwrap_or(&cell.value)
+                .as_bytes(),
             16,
         )
         .expect(&format!("Failed to parse value: {}", cell.value));
@@ -567,7 +581,13 @@ fn generate_tasks_metadata(
 
     let output = extract_program_output(public_input);
     println!("Program output length: {}", output.len());
-    println!("Program output: {:?}", output.iter().map(|x| format!("0x{:x}", x)).collect::<Vec<_>>());
+    println!(
+        "Program output: {:?}",
+        output
+            .iter()
+            .map(|x| format!("0x{:x}", x))
+            .collect::<Vec<_>>()
+    );
 
     // Simple bootloader output structure:
     // [0]: nTasks
@@ -593,14 +613,16 @@ fn generate_tasks_metadata(
     let (n_tasks, tasks_start_idx) = if is_full_bootloader {
         println!("Detected FULL bootloader format (with bootloader_config prefix)");
         // Full bootloader: nTasks at index 2, tasks start at index 3
-        let n = output.get(2)
+        let n = output
+            .get(2)
             .map(|v| v.to_string().parse::<usize>().unwrap_or(0))
             .unwrap_or(0);
         (n, 3usize)
     } else {
         println!("Detected SIMPLE bootloader format");
         // Simple bootloader: nTasks at index 0, tasks start at index 1
-        let n = output.get(0)
+        let n = output
+            .get(0)
             .map(|v| v.to_string().parse::<usize>().unwrap_or(0))
             .unwrap_or(0);
         (n, 1usize)
@@ -609,14 +631,17 @@ fn generate_tasks_metadata(
     println!("n_tasks: {}", n_tasks);
 
     if n_tasks != fact_topologies.len() {
-        eprintln!("WARNING: n_tasks ({}) != fact_topologies.len() ({})", n_tasks, fact_topologies.len());
+        eprintln!(
+            "WARNING: n_tasks ({}) != fact_topologies.len() ({})",
+            n_tasks,
+            fact_topologies.len()
+        );
     }
 
     // Auto-detect if output actually contains bootloader config
     // Cairo PIE bootloader doesn't write bootloader config to output
     // RunProgramTask bootloader does write it
     // Check if first element is a small number (n_tasks) or large hash`
-
 
     // Build task_metadata - starts with nTasks (no bootloader config here!)
     let mut task_metadata = vec![BigInt::from(n_tasks)];
@@ -632,7 +657,10 @@ fn generate_tasks_metadata(
         let task_output_size = output[ptr].to_string().parse::<usize>().unwrap_or(0);
         let program_hash = output.get(ptr + 1).cloned().unwrap_or(BigInt::zero());
 
-        println!("Task {}: outputSize={}, programHash=0x{:x}", i, task_output_size, program_hash);
+        println!(
+            "Task {}: outputSize={}, programHash=0x{:x}",
+            i, task_output_size, program_hash
+        );
 
         task_metadata.push(BigInt::from(task_output_size));
         task_metadata.push(program_hash);
@@ -648,7 +676,10 @@ fn generate_tasks_metadata(
         ptr += task_output_size;
     }
 
-    println!("Generated task_metadata with {} elements", task_metadata.len());
+    println!(
+        "Generated task_metadata with {} elements",
+        task_metadata.len()
+    );
     task_metadata
 }
 
@@ -656,7 +687,13 @@ fn generate_tasks_metadata(
 fn load_fact_topologies(base_path: &str) -> Vec<FactTopology> {
     // Try multiple possible paths
     let possible_paths = vec![
-        format!("{}/fact_topologies.json", std::path::Path::new(base_path).parent().unwrap_or(std::path::Path::new(".")).display()),
+        format!(
+            "{}/fact_topologies.json",
+            std::path::Path::new(base_path)
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .display()
+        ),
         "fact_topologies.json".to_string(),
         "bootloader/fact_topologies.json".to_string(),
     ];
@@ -729,7 +766,10 @@ fn prepare_verifier_input(annotated_proof_path: &str) -> VerifierInput {
     page_numbers.sort();
     eprintln!("DEBUG: Adding {} products", page_numbers.len());
     for &page_num in &page_numbers {
-        eprintln!("DEBUG: Adding product for page {}: {:x}", page_num, page_prods[&page_num]);
+        eprintln!(
+            "DEBUG: Adding product for page {}: {:x}",
+            page_num, page_prods[&page_num]
+        );
         public_input.push(page_prods[&page_num].clone());
     }
     eprintln!("DEBUG: Final public_input length: {}", public_input.len());

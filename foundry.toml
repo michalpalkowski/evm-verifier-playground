@@ -23,6 +23,7 @@ fs_permissions = [
     { access = "read", path = "./proofs" },
     { access = "read", path = "./input.json" },
     { access = "read", path = "./annotated_proof.json" },
+    { access = "read", path = "./work" },
     { access = "read-write", path = "./deployment-addresses.json" }
 ]
 

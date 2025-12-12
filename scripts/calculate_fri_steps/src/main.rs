@@ -90,7 +90,10 @@ fn read_n_steps_from_public_input(path: &PathBuf) -> Result<u32, Box<dyn std::er
     }
 
     // Try in public_memory
-    if let Some(trace_length) = json.get("public_memory").and_then(|m| m.get("trace_length")) {
+    if let Some(trace_length) = json
+        .get("public_memory")
+        .and_then(|m| m.get("trace_length"))
+    {
         return Ok(trace_length.as_u64().ok_or("Invalid trace_length")? as u32);
     }
 
@@ -105,7 +108,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut params: CpuAirParams = serde_json::from_str(&params_content)?;
 
     // Get degree_bound (from args, file, or default)
-    let degree_bound = args.degree_bound
+    let degree_bound = args
+        .degree_bound
         .unwrap_or(params.stark.fri.last_layer_degree_bound);
 
     // Get n_steps (from args, public_input, or default)
@@ -114,7 +118,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(ref public_input_path) = args.public_input {
         match read_n_steps_from_public_input(public_input_path) {
             Ok(n_steps) => {
-                println!("Read n_steps from {}: {}", public_input_path.display(), n_steps);
+                println!(
+                    "Read n_steps from {}: {}",
+                    public_input_path.display(),
+                    n_steps
+                );
                 n_steps
             }
             Err(e) => {
@@ -133,7 +141,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Calculating FRI step list:");
     println!("  n_steps: {}", n_steps);
     println!("  degree_bound: {}", degree_bound);
-    println!("  fri_degree: {}", ((n_steps as f64 / degree_bound as f64).log2().round() as u32) + 4);
+    println!(
+        "  fri_degree: {}",
+        ((n_steps as f64 / degree_bound as f64).log2().round() as u32) + 4
+    );
     println!("  calculated fri_step_list: {:?}", new_fri_steps);
     println!();
 
