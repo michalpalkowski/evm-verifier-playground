@@ -32,9 +32,3 @@ fs_permissions = [
 sepolia = "${SEPOLIA_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
 base = "${BASE_RPC_URL}"
-
-# Etherscan verification
-[etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
-base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
-base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api" }

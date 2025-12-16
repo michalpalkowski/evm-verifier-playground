@@ -31,17 +31,20 @@ enum Commands {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    
+
     match cli.command {
-        Commands::Example { program, bootloader } => {
+        Commands::Example {
+            program,
+            bootloader,
+        } => {
             let example_dir = if bootloader {
                 format!("examples/{}-bootloader", program)
             } else {
                 format!("examples/{}", program)
             };
-            
+
             let input_json_path = Path::new(&example_dir).join("input.json");
-            
+
             if !input_json_path.exists() {
                 eprintln!("❌ Error: input.json not found in {}", example_dir);
                 eprintln!("Available examples: fibonacci, factorial");
@@ -50,22 +53,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     eprintln!("  make simple-flow PROGRAM={} LAYOUT=starknet", program);
                 }
-                eprintln!("  cp work/{}-starknet/input.json ../ethereum_verifier/{}/", program, example_dir);
+                eprintln!(
+                    "  cp work/{}-starknet/input.json ../ethereum_verifier/{}/",
+                    program, example_dir
+                );
                 return Err(format!("input.json not found in {}", example_dir).into());
             }
-            
-            println!("🧪 Testing program: {} ({})", program, if bootloader { "bootloader" } else { "regular" });
-            
+
+            println!(
+                "🧪 Testing program: {} ({})",
+                program,
+                if bootloader { "bootloader" } else { "regular" }
+            );
+
             // Copy input.json to root
             fs::copy(&input_json_path, "input.json")?;
             println!("  Copied {} to input.json", input_json_path.display());
-            
+
             // Run forge test
             let mut cmd = Command::new("forge");
             cmd.arg("test").arg("--match-test").arg("test_VerifyProof");
-            
+
             let status = cmd.status()?;
-            
+
             if status.success() {
                 println!("✅ Test complete");
                 Ok(())
@@ -75,17 +85,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::All { gas } => {
             println!("🧪 Running all Forge tests...");
-            
+
             let mut cmd = Command::new("forge");
             cmd.arg("test");
-            
+
             if gas {
                 cmd.arg("--gas-report");
                 println!("  (with gas report)");
             }
-            
+
             let status = cmd.status()?;
-            
+
             if status.success() {
                 println!("✅ All tests passed");
                 Ok(())
@@ -95,4 +105,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 }
-
