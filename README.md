@@ -73,11 +73,8 @@ Verify large bootloader proofs using the split approach:
 cargo run --bin verify sepolia
 cargo run --bin verify base-sepolia
 
-# Or with explicit paths
-cargo run --bin verify sepolia -- \
-  --annotated-proof work/bootloader/annotated_proof.json \
-  --input-json work/bootloader/input.json \
-  --fact-topologies bootloader/fact_topologies.json
+# by default it will verify factorial proof but you can specify to verify fobonnaci.
+cargo run --bin verify -- --annotated-proof examples/fibonacci-bootloader/annotated_proof.json --fact-topologies examples/fibonacci-bootloader/fact_topologies.json sepolia
 ```
 
 The verification process:
