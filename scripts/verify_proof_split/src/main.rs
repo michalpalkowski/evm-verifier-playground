@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use ethers::{
     contract::ContractError,
     core::k256::ecdsa::SigningKey,
@@ -19,7 +19,10 @@ use std::{convert::TryFrom, env, fs::read_to_string, str::FromStr, sync::Arc};
 #[derive(Parser, Debug)]
 #[command(name = "verify")]
 #[command(about = "Verify large STARK proofs by splitting them into smaller transactions")]
-struct Args {
+struct Cli {
+    #[command(subcommand)]
+    network: Option<Network>,
+    
     /// Path to annotated_proof.json file
     #[arg(short, long)]
     annotated_proof: Option<String>,
@@ -32,9 +35,17 @@ struct Args {
     #[arg(short, long)]
     fact_topologies: Option<String>,
     
-    /// RPC URL for Ethereum network (overrides SEPOLIA_RPC_URL/URL env vars)
+    /// RPC URL for Ethereum network (overrides network default and env vars)
     #[arg(short, long)]
     rpc_url: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Network {
+    /// Verify on Sepolia testnet
+    Sepolia,
+    /// Verify on Base Sepolia testnet
+    BaseSepolia,
 }
 
 #[tokio::main]
@@ -42,12 +53,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Note: Use direnv to load environment variables from .env
     // direnv will automatically load them into the shell, and env::var() will see them
     
-    let args = Args::parse();
+    let cli = Cli::parse();
     
-    // Load RPC URL - prioritize command line arg, then env vars
-    let url = args.rpc_url
-        .or_else(|| env::var("SEPOLIA_RPC_URL").ok())
-        .expect("SEPOLIA_RPC_URL must be set in .env");
+    // Load RPC URL - prioritize explicit --rpc-url, then network subcommand, then env vars
+    let url = cli.rpc_url.or_else(|| {
+        match &cli.network {
+            Some(Network::Sepolia) => env::var("SEPOLIA_RPC_URL").ok(),
+            Some(Network::BaseSepolia) => env::var("BASE_SEPOLIA_RPC_URL").ok(),
+            None => env::var("SEPOLIA_RPC_URL").ok(),
+        }
+    }).expect("RPC URL must be set via --rpc-url, network subcommand (sepolia/base-sepolia), or SEPOLIA_RPC_URL env var");
 
     println!("Using RPC URL: {}", url);
     let provider: Provider<Http> = Provider::try_from(url.as_str())?;
@@ -67,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     // Load annotated proof - prioritize command line args, then env vars
-    let annotated_proof_path = args.annotated_proof
+    let annotated_proof_path = cli.annotated_proof
         .or_else(|| env::var("ANNOTATED_PROOF").ok())
         .expect("ANNOTATED_PROOF must be set in .env or use --annotated-proof <path>");
     
@@ -84,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let split_proofs = split_fri_merkle_statements(annotated_proof.clone())?;
 
     // Load fact topologies - prioritize command line args, then env vars
-    let fact_topologies_path = args.fact_topologies
+    let fact_topologies_path = cli.fact_topologies
         .or_else(|| env::var("FACT_TOPOLOGIES").ok())
         .expect("FACT_TOPOLOGIES must be set in .env or use --fact-topologies <path>");
     
@@ -181,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gps_verifier_addr = Address::from_str(&gps_verifier_address)?;
     
     // Load input.json for main proof verification - prioritize command line args, then env vars
-    let input_json_path = args.input_json
+    let input_json_path = cli.input_json
         .or_else(|| env::var("INPUT_JSON").ok())
         .expect("INPUT_JSON must be set in .env or use --input-json <path>");
     

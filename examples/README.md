@@ -23,14 +23,8 @@ examples/
 Test regular (non-bootloader) proofs:
 
 ```bash
-make test-program PROGRAM=fibonacci
-make test-program PROGRAM=factorial
-```
-
-Or use shortcuts:
-```bash
-make test-fibonacci
-make test-factorial
+cargo run --bin test example fibonacci
+cargo run --bin test example factorial
 ```
 
 ### Bootloader Proofs
@@ -38,44 +32,22 @@ make test-factorial
 Test bootloader proofs:
 
 ```bash
-make test-program-bootloader PROGRAM=fibonacci
-make test-program-bootloader PROGRAM=factorial
-```
-
-Or use shortcuts:
-```bash
-make test-fibonacci-bootloader
-make test-factorial-bootloader
+cargo run --bin test example fibonacci --bootloader
+cargo run --bin test example factorial --bootloader
 ```
 
 ## Updating Examples
 
-To update example files with newly generated proofs, use the make target:
-
-```bash
-# Generate and prepare proofs first
-make prepare PROGRAM=fibonacci
-make prepare PROGRAM=factorial
-make bootloader-prepare PROGRAM=factorial
-
-# Then update all examples at once
-make update-examples
-```
-
-Or manually copy files:
+To update example files with newly generated proofs, manually copy files from your proof generation tool:
 
 ```bash
 # For regular proofs
-make prepare PROGRAM=fibonacci
-cp work/fibonacci/input.json examples/fibonacci/input.json
-
-make prepare PROGRAM=factorial
-cp work/factorial/input.json examples/factorial/input.json
+cp /path/to/fibonacci/input.json examples/fibonacci/input.json
+cp /path/to/factorial/input.json examples/factorial/input.json
 
 # For bootloader proofs (note: both use the same file)
-make bootloader-prepare PROGRAM=factorial
-cp work/bootloader/input.json examples/factorial-bootloader/input.json
-cp work/bootloader/input.json examples/fibonacci-bootloader/input.json
+cp /path/to/bootloader/input.json examples/factorial-bootloader/input.json
+cp /path/to/bootloader/input.json examples/fibonacci-bootloader/input.json
 ```
 
 ## Note

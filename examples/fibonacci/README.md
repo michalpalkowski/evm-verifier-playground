@@ -2,8 +2,4 @@
 
 Simple Cairo program computing Fibonacci numbers.
 
-## Run
-
-```bash
-make all-skip-cairo PROGRAM=fibonacci
-```
+This example is used for testing the verifier. To generate new proofs, use the `prepare-proof` repository.
