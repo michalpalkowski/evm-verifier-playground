@@ -1,176 +1,185 @@
 # Ethereum STARK Verifier
 
+## 🔍 Verifying Proofs
+
+### Quick Verification
+
+Verify large bootloader proofs using the split approach:
+
+```bash
+# Simple usage (with direnv configured)
+cargo run --bin verify
+
+# Or with explicit paths
+cargo run --bin verify -- \
+  --annotated-proof work/bootloader/annotated_proof.json \
+  --input-json work/bootloader/input.json \
+  --fact-topologies bootloader/fact_topologies.json
+
+# Or use Makefile (uses default paths)
+make verify-proof-sepolia-split
+```
+
+The verification process:
+1. **Splits the proof** into smaller parts (trace decommitments, FRI decommitments, continuous pages)
+2. **Registers each part** separately to avoid gas/calldata limits
+3. **Verifies the main proof** using `input.json` directly
+
+### Environment Setup
+
+This project uses `direnv` to automatically load environment variables from `.env`.
+
+**First-time setup:**
+
+1. **Install direnv:**
+
+2. **Set up environment variables:**
+   ```bash
+   # Copy example file
+   cp .env.example .env
+   
+   # Edit .env with your values:
+   # - SEPOLIA_RPC_URL (your Ethereum RPC endpoint)
+   # - PRIVATE_KEY (your wallet private key)
+   # - ANNOTATED_PROOF (optional, defaults to work/bootloader/annotated_proof.json)
+   # - INPUT_JSON (optional, defaults to work/bootloader/input.json)
+   # - FACT_TOPOLOGIES (optional, defaults to bootloader/fact_topologies.json)
+   ```
+
+After setup, `direnv` will automatically load variables from `.env` whenever you `cd` into the project directory.
+
+**Required files:**
+- `.env` file with `PRIVATE_KEY` and `SEPOLIA_RPC_URL`
+- `deployment-addresses.json` with deployed contract addresses
+- Proof files (`annotated_proof.json`, `input.json`, `fact_topologies.json`)
+
+---
+
+to test gps(general purpose verifier) flow you need to create input.json (prepared proof from full-bootloader) in main folder, you can do this with prepared examples like fibonnaci or factorial with command  e.g ```make test-program-bootloader PROGRAM=factorial ``` this will create input.json which you can verify. 
+
+To test CPU verifier you need to overwrite input.json with proof without bootloader, you can do that with prepared proof by running e.g ``` make test-program PROGRAM=fibonacci``` you can test it with ``forge test`` command (CpuVerifier.t.sol).
+
 ## ⚠️ Project Status
 
 **This is not a production version of an EVM verifier - a production implementation can be found on the Ethereum mainnet**
 
-Generate and verify STARK proofs on Ethereum.
+Solidity contracts for verifying STARK proofs on Ethereum.
 
-## 🚀 Quick Start - Run Examples
+**⚠️ Important:** The EVM verifier is currently compatible only with proofs generated using `layout=starknet`. Proofs generated with other layouts (e.g., `recursive_with_poseidon`) are not supported yet.
 
-Choose one of the examples:
+## 🚀 Quick Start
 
-### 1️⃣ Fibonacci Example
+### Prerequisites
 
-```bash
-make setup                                    # First time setup
-make copy-cairo-files PROGRAM=fibonacci       # Copy files
-make all-skip-cairo PROGRAM=fibonacci         # Generate proof and test
-```
+- Foundry (for testing and deployment)
+- Rust (for building dependencies)
 
-### 2️⃣ Factorial Example
+### Setup
 
 ```bash
-make setup                                    # First time setup
-make copy-cairo-files PROGRAM=factorial       # Copy files
-make all-skip-cairo PROGRAM=factorial         # Generate proof and test
+make setup                    # Install dependencies
 ```
 
-### 3️⃣ Bootloader Example
+### Testing with Pre-generated Proofs
+
+This repository only handles **verification** of STARK proofs. You need pre-generated `input.json` files to test.
 
 ```bash
-make setup                                    # First time setup
-make create-pie PROGRAM=factorial              # Create PIE from Cairo program
-make bootloader-all PROGRAM=factorial         # Run bootloader and generate proof
+# Test verification with existing input.json
+make test-program PROGRAM=fibonacci
 ```
 
----
-
-## ✅ Already Have Proofs?
-
-If you already have generated proofs, you can verify and test them (IMPORTANT: proof must be generated in layout starknet and with keccak256):
-
-### Regular Programs (Fibonacci, Factorial, etc.)
+### Available Test Commands
 
 ```bash
-make verify PROGRAM=fibonacci           # Generate annotations with cpu_air_verifier
-make prepare PROGRAM=fibonacci          # Prepare for EVM (includes verify step)
-make test-gas                           # Real EVM verification using Solidity verifier
+make test                     # Run all tests
+make test-gas                 # Run tests with gas report
+make test-program PROGRAM=fibonacci    # Test specific program
+make test-program-bootloader PROGRAM=factorial  # Test bootloader proof
 ```
-
-**Note:** 
-- `make verify` uses `cpu_air_verifier` to generate additional annotations needed for EVM preparation (not actual EVM verification)
-- `make prepare` converts the proof to EVM format (requires verify step)
-- `make test-gas` performs the actual on-chain verification using the Solidity verifier contract
-
-### Bootloader Programs
-
-```bash
-make bootloader-verify PROGRAM=factorial    # Generate annotations with cpu_air_verifier
-make bootloader-prepare PROGRAM=factorial  # Prepare for EVM (includes verify step)
-make test-gas                               # Real EVM verification using Solidity verifier
-```
-
-**Note:** Proofs should be in `work/<PROGRAM>/<PROGRAM>_proof.json` (or `work/bootloader/<PROGRAM>_proof.json` for bootloader).
-
----
 
 ## 📋 Requirements
 
-- Stone prover binaries in programs/ (`cpu_air_prover`, `cpu_air_verifier`)
-- `stark_evm_adapter` in PATH - converts Stone prover proofs to EVM format (used in `make prepare`)
-- Rust & Foundry
+- Foundry (`forge`, `cast`)
+- Pre-generated `input.json` files (from `prepare-proof` repository)
 
-## 📚 More Commands
+## 📚 Examples
 
-### Proof Generation
-```bash
-make copy-cairo-files PROGRAM=<name>   # Copy files from stone-prover
-make prove-only PROGRAM=<name>         # Generate proof (auto FRI)
-make verify PROGRAM=<name>             # Verify proof
-make prepare PROGRAM=<name>            # Prepare for EVM
-make all-skip-cairo PROGRAM=<name>     # Full pipeline (skip cairo-run)
-make all PROGRAM=<name>                # Full pipeline (with cairo-run)
-```
+Example `input.json` files are stored in `examples/` directory:
 
-### Bootloader
-```bash
-make create-pie PROGRAM=<name>         # Create PIE from program
-make bootloader-cairo-run PROGRAM=<name> # Run bootloader with PIE
-make bootloader-prove PROGRAM=<name>   # Generate bootloader proof
-make bootloader-verify PROGRAM=<name>  # Verify bootloader proof
-make bootloader-prepare PROGRAM=<name> # Prepare for EVM
-make bootloader-all PROGRAM=<name>     # Full bootloader pipeline
-```
+- `examples/fibonacci/input.json` - Fibonacci program proof
+- `examples/factorial/input.json` - Factorial program proof
+- `examples/fibonacci-bootloader/input.json` - Fibonacci via bootloader
+- `examples/factorial-bootloader/input.json` - Factorial via bootloader
 
-### Testing
-```bash
-make test                              # Run tests
-make test-gas                          # Tests with gas report
-make benchmark                         # Benchmarks
-```
+## 🌐 Deployment
 
-### Deployment (Sepolia testnet)
-```bash
-make deploy-sepolia-dry                # Simulate deployment
-make deploy-sepolia                    # Deploy to Sepolia
-make verify-proof-sepolia              # Verify proof on-chain
-```
-
-## Configuration
-
-Edit `.env`:
-```bash
-CAIRO_RUN=./scripts/cairo-run-wrapper.sh
-STONE_PROVER_DIR=/path/to/stone-prover
-CAIRO_LANG_DIR=/path/to/cairo-lang-latest  # For bootloader
-CPU_AIR_PROVER=./programs/cpu_air_prover
-CPU_AIR_VERIFIER=./programs/cpu_air_verifier
-PROVER_PARAMS=./prover_settings/cpu_air_params.json
-WORK_DIR=./work
-```
-
-## FRI Steps Calculator
-
-Automatically calculates optimal FRI step sizes based on `n_steps` from public input.
-
-Runs automatically before proof generation:
-```bash
-make prove-only PROGRAM=fibonacci  # Auto-calculates FRI
-```
-
-Manual:
-```bash
-make calc-fri-steps PROGRAM=fibonacci
-```
-
-Formula:
-```
-fri_degree = log2(n_steps / degree_bound) + 4
-fri_step_list = [0, 4, 4, 4, ..., remainder]
-```
-
-## Adding Programs
-
-```bash
-mkdir -p examples/myprogram
-cp myprogram_compiled.json examples/myprogram/
-cp myprogram_input.json examples/myprogram/
-make all-skip-cairo PROGRAM=myprogram
-```
-
-## Deployment
-
-Deploy to Sepolia testnet:
+### Sepolia Testnet
 
 ```bash
 # Setup
-cp .env.deploy.example .env.deploy
-# Edit .env.deploy with your keys
+cp .env.example .env
+# Edit .env with your keys
 
 # Deploy
 make deploy-sepolia
 
 # Verify proof on-chain
-make prepare PROGRAM=fibonacci
 make verify-proof-sepolia
 ```
 
+### Base Network
+
+```bash
+make deploy-base-sepolia      # Deploy to Base Sepolia
+make deploy-base              # Deploy to Base Mainnet (⚠️ CAUTION)
+```
+
+## 📁 Project Structure
+
+```
+ethereum_verifier/
+├── src/                      # Solidity verifier contracts
+├── test/                     # Foundry tests
+├── script/                   # Deployment scripts
+├── examples/                 # Pre-generated input.json files
+└── lib/                      # Dependencies (forge-std, evm-verifier-columns)
+```
+
+## 🔍 Verification Process
+
+1. **Obtain input.json** - You need a pre-generated `input.json` file from a proof generation tool
+
+2. **Place input.json** in the examples directory:
+   ```bash
+   cp /path/to/input.json examples/fibonacci/input.json
+   ```
+
+3. **Test Verification**:
+   ```bash
+   make test-program PROGRAM=fibonacci
+   ```
+
+4. **Deploy and Verify On-chain**:
+   ```bash
+   make deploy-sepolia
+   make verify-proof-sepolia
+   ```
+
+## 📝 Notes
+
+- This repository **only handles verification** - proof generation must be done separately
+- **Compatibility:** The EVM verifier currently supports only proofs generated with `layout=starknet`
+- Proofs must use `keccak256` for EVM compatibility
+- The verifier contracts are in `src/layout_starknet/`
+
 ## Troubleshooting
 
-**Missing files:** Run `make copy-cairo-files PROGRAM=<name>`
+**Missing input.json:** Obtain a pre-generated `input.json` file from your proof generation tool
 
-**Permission denied:** Run `chmod +x programs/* scripts/*.sh`
+**Test failures:** Ensure `input.json` is in the correct location (`examples/PROGRAM/input.json`)
+
+**Deployment issues:** Check `.env` configuration
 
 ## License
 
