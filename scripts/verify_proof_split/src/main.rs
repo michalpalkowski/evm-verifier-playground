@@ -19,9 +19,6 @@ use std::{convert::TryFrom, env, fs::read_to_string, str::FromStr, sync::Arc};
 #[command(name = "verify")]
 #[command(about = "Verify large STARK proofs by splitting them into smaller transactions")]
 struct Cli {
-    #[command(subcommand)]
-    network: Option<Network>,
-
     /// Path to annotated_proof.json file
     #[arg(short, long)]
     annotated_proof: Option<String>,
@@ -37,6 +34,9 @@ struct Cli {
     /// RPC URL for Ethereum network (overrides network default and env vars)
     #[arg(short, long)]
     rpc_url: Option<String>,
+
+    #[command(subcommand)]
+    network: Option<Network>,
 }
 
 #[derive(Subcommand, Debug)]
