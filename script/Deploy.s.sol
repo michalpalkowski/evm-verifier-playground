@@ -164,16 +164,12 @@ contract DeployScript is Script {
         console.log("\n7. Deploying GpsStatementVerifier...");
         console.log("  CpuVerifier address:", verifier);
         
-        // stark-evm-adapter uses hardcoded cairo_verifier_id = 6
-        // So we need at least 7 verifiers (indices 0-6)
-        // We'll use the same verifier for all indices
-        address[] memory cairoVerifiers = new address[](7);
+        // We deploy only 1 verifier and use cairo_verifier_id = 0 (like in tests)
+        // Since we make manual requests, we don't need to match stark-evm-adapter's hardcoded id = 6
+        address[] memory cairoVerifiers = new address[](1);
+        cairoVerifiers[0] = address(verifier);
         console.log("  Created cairoVerifiers array with length:", cairoVerifiers.length);
-        
-        for (uint256 i = 0; i < 7; i++) {
-            cairoVerifiers[i] = address(verifier);
-            console.log("  Set cairoVerifiers[%s] to:", i, cairoVerifiers[i]);
-        }
+        console.log("  Set cairoVerifiers[0] to:", cairoVerifiers[0]);
 
         // These values must match the bootloader config used when generating proofs
         uint256 simpleBootloaderProgramHash = 2837065596727015720211588542358388273918703458440061085859263118820688767610;

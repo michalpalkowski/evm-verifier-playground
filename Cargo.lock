@@ -2444,6 +2444,7 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 name = "prepare-input"
 version = "0.1.0"
 dependencies = [
+ "ethers",
  "num-bigint",
  "num-traits",
  "regex",
@@ -3861,6 +3862,8 @@ dependencies = [
  "clap 4.5.51",
  "ethers",
  "hex",
+ "num-bigint",
+ "prepare-input",
  "serde",
  "serde_json",
  "stark_evm_adapter",

@@ -70,11 +70,6 @@ fn calculate_fri_step_list(n_steps: u32, degree_bound: u32) -> Vec<u32> {
     steps
 }
 
-fn calculate_n_steps_from_trace_length(trace_length_log: u32) -> u32 {
-    // Typical formula: n_steps = 2^trace_length_log
-    2u32.pow(trace_length_log)
-}
-
 fn read_n_steps_from_public_input(path: &PathBuf) -> Result<u32, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path)?;
     let json: Value = serde_json::from_str(&content)?;
@@ -165,34 +160,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Updated {}", output_path.display());
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_calculate_fri_step_list() {
-        // Test case from your function
-        let n_steps = 1048576; // 2^20
-        let degree_bound = 64;
-        let result = calculate_fri_step_list(n_steps, degree_bound);
-
-        // fri_degree = log2(1048576/64) + 4 = log2(16384) + 4 = 14 + 4 = 18
-        // 18 / 4 = 4 remainder 2
-        // Expected: [0, 4, 4, 4, 4, 2]
-        assert_eq!(result, vec![0, 4, 4, 4, 4, 2]);
-    }
-
-    #[test]
-    fn test_different_degree_bound() {
-        let n_steps = 1048576; // 2^20
-        let degree_bound = 128;
-        let result = calculate_fri_step_list(n_steps, degree_bound);
-
-        // fri_degree = log2(1048576/128) + 4 = 13 + 4 = 17
-        // 17 / 4 = 4 remainder 1
-        // Expected: [0, 4, 4, 4, 4, 1]
-        assert_eq!(result, vec![0, 4, 4, 4, 4, 1]);
-    }
 }

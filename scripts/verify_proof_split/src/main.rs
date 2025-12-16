@@ -8,6 +8,7 @@ use ethers::{
     types::{Address, U256, U64},
     utils::hex,
 };
+use prepare_input::prepare_verifier_input;
 use stark_evm_adapter::{
     annotated_proof::AnnotatedProof, annotation_parser::split_fri_merkle_statements,
     oods_statement::FactTopology, ContractFunctionCall,
@@ -208,96 +209,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Step 4: Verify main proof
-    // Use input.json directly (like test Forge) instead of stark_evm_adapter
-    // because stark_evm_adapter adds padding in memory_page_public_input which causes
-    // "Invalid publicMemoryPages length" error
     println!("Verifying main proof:");
     let gps_verifier_addr = Address::from_str(&gps_verifier_address)?;
 
-    // Load input.json for main proof verification - prioritize command line args, then env vars
-    let input_json_path = cli
-        .input_json
-        .or_else(|| env::var("INPUT_JSON").ok())
-        .expect("INPUT_JSON must be set in .env or use --input-json <path>");
+    // Use prepare_verifier_input to get VerifierInput directly from annotated_proof
+    let verifier_input = prepare_verifier_input(&annotated_proof_path);
 
-    let input_json: serde_json::Value = serde_json::from_str(&read_to_string(&input_json_path)?)?;
-
-    // Parse proof params, proof, public input, z, alpha, taskMetadata from input.json
-    let proof_params_hex: Vec<String> = input_json
-        .get("proof_params")
-        .and_then(|v| v.as_array())
-        .ok_or("proof_params not found in input.json")?
-        .iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
-
-    let proof_hex: Vec<String> = input_json
-        .get("proof")
-        .and_then(|v| v.as_array())
-        .ok_or("proof not found in input.json")?
-        .iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
-
-    let public_input_hex: Vec<String> = input_json
-        .get("public_input")
-        .and_then(|v| v.as_array())
-        .ok_or("public_input not found in input.json")?
-        .iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
-
-    let z_hex = input_json
-        .get("z")
-        .and_then(|v| v.as_str())
-        .ok_or("z not found in input.json")?;
-    let alpha_hex = input_json
-        .get("alpha")
-        .and_then(|v| v.as_str())
-        .ok_or("alpha not found in input.json")?;
-
-    let task_metadata_hex: Vec<String> = input_json
-        .get("task_metadata")
-        .and_then(|v| v.as_array())
-        .ok_or("task_metadata not found in input.json")?
-        .iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
-
-    // Convert hex strings to U256
-    let proof_params: Vec<U256> = proof_params_hex
-        .iter()
-        .map(|s| {
-            U256::from_str(s)
-                .map_err(|e| format!("Failed to parse proof_params hex '{}': {}", s, e))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let proof: Vec<U256> = proof_hex
-        .iter()
-        .map(|s| U256::from_str(s).map_err(|e| format!("Failed to parse proof hex '{}': {}", s, e)))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let public_input: Vec<U256> = public_input_hex
-        .iter()
-        .map(|s| {
-            U256::from_str(s)
-                .map_err(|e| format!("Failed to parse public_input hex '{}': {}", s, e))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let z =
-        U256::from_str(z_hex).map_err(|e| format!("Failed to parse z hex '{}': {}", z_hex, e))?;
-    let alpha = U256::from_str(alpha_hex)
-        .map_err(|e| format!("Failed to parse alpha hex '{}': {}", alpha_hex, e))?;
-
-    let task_metadata: Vec<U256> = task_metadata_hex
-        .iter()
-        .map(|s| {
-            U256::from_str(s)
-                .map_err(|e| format!("Failed to parse task_metadata hex '{}': {}", s, e))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let proof_params = verifier_input.proof_params;
+    let proof = verifier_input.proof;
+    let public_input = verifier_input.public_input;
+    let z = verifier_input.z;
+    let alpha = verifier_input.alpha;
+    let task_metadata = verifier_input.task_metadata;
 
     // Create cairoAuxInput (public input + z + alpha) - same as test Forge
     let mut cairo_aux_input = public_input.clone();
@@ -329,7 +252,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|&v| ethers::abi::Token::Uint(v))
                 .collect(),
         ),
-        ethers::abi::Token::Uint(U256::from(6u64)), // cairo_verifier_id = 6 (hardcoded in stark_evm_adapter)
+        ethers::abi::Token::Uint(U256::from(0u64)), // we can use 0 because we have only one verifier (starknet layout)
     ]);
 
     let call_data = [&function_selector[..], &encoded[..]].concat();
