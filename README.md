@@ -1,176 +1,110 @@
 # Ethereum STARK Verifier
 
-## ⚠️ Project Status
+Solidity contracts for verifying STARK proofs on Ethereum.
 
-**This is not a production version of an EVM verifier - a production implementation can be found on the Ethereum mainnet**
+## 🚀 Quick Start
 
-Generate and verify STARK proofs on Ethereum.
+### Prerequisites
 
-## 🚀 Quick Start - Run Examples
+- Foundry (`forge`, `cast`)
+- Rust
+- direnv (for environment variables)
 
-Choose one of the examples:
+### Setup
 
-### 1️⃣ Fibonacci Example
+1. **Install direnv:**
 
-```bash
-make setup                                    # First time setup
-make copy-cairo-files PROGRAM=fibonacci       # Copy files
-make all-skip-cairo PROGRAM=fibonacci         # Generate proof and test
-```
+2. **Configure environment:**
+   ```bash
+   # Copy example file
+   cp .env.example .env
+   
+   # Edit .env and fill in required values:
+   # - PRIVATE_KEY=your_private_key_here (required)
+   # - SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY (required)
+   # 
+   # Optional (defaults to examples/factorial-bootloader/):
+   # - ANNOTATED_PROOF=examples/factorial-bootloader/annotated_proof.json
+   # - INPUT_JSON=examples/factorial-bootloader/input.json
+   # - FACT_TOPOLOGIES=bootloader/fact_topologies.json
+   ```
 
-### 2️⃣ Factorial Example
+3. **Allow direnv:**
+   ```bash
+   direnv allow .
+   ```
 
-```bash
-make setup                                    # First time setup
-make copy-cairo-files PROGRAM=factorial       # Copy files
-make all-skip-cairo PROGRAM=factorial         # Generate proof and test
-```
-
-### 3️⃣ Bootloader Example
-
-```bash
-make setup                                    # First time setup
-make create-pie PROGRAM=factorial              # Create PIE from Cairo program
-make bootloader-all PROGRAM=factorial         # Run bootloader and generate proof
-```
-
----
-
-## ✅ Already Have Proofs?
-
-If you already have generated proofs, you can verify and test them (IMPORTANT: proof must be generated in layout starknet and with keccak256):
-
-### Regular Programs (Fibonacci, Factorial, etc.)
+### Deploy Contracts
 
 ```bash
-make verify PROGRAM=fibonacci           # Generate annotations with cpu_air_verifier
-make prepare PROGRAM=fibonacci          # Prepare for EVM (includes verify step)
-make test-gas                           # Real EVM verification using Solidity verifier
+# Deploy to Sepolia testnet
+cargo run --bin deploy sepolia
+
+# Dry run (simulate without broadcasting)
+cargo run --bin deploy sepolia --dry
+
+# Deploy to Base Sepolia
+cargo run --bin deploy base-sepolia
 ```
 
-**Note:** 
-- `make verify` uses `cpu_air_verifier` to generate additional annotations needed for EVM preparation (not actual EVM verification)
-- `make prepare` converts the proof to EVM format (requires verify step)
-- `make test-gas` performs the actual on-chain verification using the Solidity verifier contract
-
-### Bootloader Programs
+### Test Programs
 
 ```bash
-make bootloader-verify PROGRAM=factorial    # Generate annotations with cpu_air_verifier
-make bootloader-prepare PROGRAM=factorial  # Prepare for EVM (includes verify step)
-make test-gas                               # Real EVM verification using Solidity verifier
+# Test a program example (fibonacci or factorial)
+cargo run --bin test example factorial
+cargo run --bin test example fibonacci
+
+# Test bootloader version
+cargo run --bin test example factorial --bootloader
+
+# Run all Forge tests
+cargo run --bin test all
+
+# Run all tests with gas report
+cargo run --bin test all --gas
 ```
 
-**Note:** Proofs should be in `work/<PROGRAM>/<PROGRAM>_proof.json` (or `work/bootloader/<PROGRAM>_proof.json` for bootloader).
+### Verify Proofs
 
----
+Verify large bootloader proofs using the split approach:
+
+```bash
+# With network selection (uses env vars for RPC URL)
+cargo run --bin verify sepolia
+cargo run --bin verify base-sepolia
+
+# Or with explicit paths
+cargo run --bin verify sepolia -- \
+  --annotated-proof work/bootloader/annotated_proof.json \
+  --input-json work/bootloader/input.json \
+  --fact-topologies bootloader/fact_topologies.json
+```
+
+The verification process:
+1. **Splits the proof** into smaller parts (trace decommitments, FRI decommitments, continuous pages)
+2. **Registers each part** separately to avoid gas/calldata limits
+3. **Verifies the main proof** using `input.json` directly
 
 ## 📋 Requirements
 
-- Stone prover binaries in programs/ (`cpu_air_prover`, `cpu_air_verifier`)
-- `stark_evm_adapter` in PATH - converts Stone prover proofs to EVM format (used in `make prepare`)
-- Rust & Foundry
+- Pre-generated `input.json` files (from `prepare-proof` repository)
+- `deployment-addresses.json` with deployed contract addresses (after deployment)
 
-## 📚 More Commands
+## 📚 Examples
 
-### Proof Generation
-```bash
-make copy-cairo-files PROGRAM=<name>   # Copy files from stone-prover
-make prove-only PROGRAM=<name>         # Generate proof (auto FRI)
-make verify PROGRAM=<name>             # Verify proof
-make prepare PROGRAM=<name>            # Prepare for EVM
-make all-skip-cairo PROGRAM=<name>     # Full pipeline (skip cairo-run)
-make all PROGRAM=<name>                # Full pipeline (with cairo-run)
-```
+Example `input.json` files are stored in `examples/` directory:
 
-### Bootloader
-```bash
-make create-pie PROGRAM=<name>         # Create PIE from program
-make bootloader-cairo-run PROGRAM=<name> # Run bootloader with PIE
-make bootloader-prove PROGRAM=<name>   # Generate bootloader proof
-make bootloader-verify PROGRAM=<name>  # Verify bootloader proof
-make bootloader-prepare PROGRAM=<name> # Prepare for EVM
-make bootloader-all PROGRAM=<name>     # Full bootloader pipeline
-```
+- `examples/fibonacci/input.json` - Fibonacci program proof
+- `examples/factorial/input.json` - Factorial program proof
+- `examples/fibonacci-bootloader/input.json` - Fibonacci via bootloader
+- `examples/factorial-bootloader/input.json` - Factorial via bootloader
 
-### Testing
-```bash
-make test                              # Run tests
-make test-gas                          # Tests with gas report
-make benchmark                         # Benchmarks
-```
+## ⚠️ Important Notes
 
-### Deployment (Sepolia testnet)
-```bash
-make deploy-sepolia-dry                # Simulate deployment
-make deploy-sepolia                    # Deploy to Sepolia
-make verify-proof-sepolia              # Verify proof on-chain
-```
-
-## Configuration
-
-Edit `.env`:
-```bash
-CAIRO_RUN=./scripts/cairo-run-wrapper.sh
-STONE_PROVER_DIR=/path/to/stone-prover
-CAIRO_LANG_DIR=/path/to/cairo-lang-latest  # For bootloader
-CPU_AIR_PROVER=./programs/cpu_air_prover
-CPU_AIR_VERIFIER=./programs/cpu_air_verifier
-PROVER_PARAMS=./prover_settings/cpu_air_params.json
-WORK_DIR=./work
-```
-
-## FRI Steps Calculator
-
-Automatically calculates optimal FRI step sizes based on `n_steps` from public input.
-
-Runs automatically before proof generation:
-```bash
-make prove-only PROGRAM=fibonacci  # Auto-calculates FRI
-```
-
-Manual:
-```bash
-make calc-fri-steps PROGRAM=fibonacci
-```
-
-Formula:
-```
-fri_degree = log2(n_steps / degree_bound) + 4
-fri_step_list = [0, 4, 4, 4, ..., remainder]
-```
-
-## Adding Programs
-
-```bash
-mkdir -p examples/myprogram
-cp myprogram_compiled.json examples/myprogram/
-cp myprogram_input.json examples/myprogram/
-make all-skip-cairo PROGRAM=myprogram
-```
-
-## Deployment
-
-Deploy to Sepolia testnet:
-
-```bash
-# Setup
-cp .env.deploy.example .env.deploy
-# Edit .env.deploy with your keys
-
-# Deploy
-make deploy-sepolia
-
-# Verify proof on-chain
-make prepare PROGRAM=fibonacci
-make verify-proof-sepolia
-```
-
-## Troubleshooting
-
-**Missing files:** Run `make copy-cairo-files PROGRAM=<name>`
-
-**Permission denied:** Run `chmod +x programs/* scripts/*.sh`
+- **This is not a production version** - a production implementation can be found on Ethereum mainnet
+- **Compatibility:** Only supports proofs generated with `layout=starknet`
+- **Proof generation:** This repository only handles verification - proof generation must be done separately using `prepare-proof` repository
+- Proofs must use `keccak256` for EVM compatibility
 
 ## License
 

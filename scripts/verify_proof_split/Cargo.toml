@@ -1,0 +1,20 @@
+[package]
+name = "verify"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "verify"
+path = "src/main.rs"
+
+[dependencies]
+ethers = { version = "2.0", features = ["abigen", "ethers-solc"] }
+stark_evm_adapter = { git = "https://github.com/zksecurity/stark-evm-adapter", branch = "main" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+clap = { version = "4.0", features = ["derive"] }
+prepare-input = { path = "../prepare_input" }
+num-bigint = "0.4"
+

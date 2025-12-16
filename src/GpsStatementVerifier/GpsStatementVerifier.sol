@@ -80,6 +80,17 @@ contract GpsStatementVerifier is
     }
 
     /*
+      Returns the number of Cairo verifiers and the address of the first verifier.
+      Useful for debugging deployment issues.
+    */
+    function getCairoVerifierInfo() external view returns (uint256 count, address firstVerifier) {
+        count = cairoVerifierContractAddresses.length;
+        if (count > 0) {
+            firstVerifier = address(cairoVerifierContractAddresses[0]);
+        }
+    }
+
+    /*
       Verifies a proof and registers the corresponding facts.
       For the structure of cairoAuxInput, see cpu/CpuPublicInputOffsets.sol.
       taskMetadata is structured as follows:

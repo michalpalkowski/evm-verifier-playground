@@ -20,17 +20,13 @@ target/
 work/
 
 # Generated proof files in root (symlinks)
-annotated_proof.json
 *_proof.json
 *_input.json
 *_output.json
 *_annotation_file.json
-benchmark.txt
-benchmark.md
 examples/*/fibonacci_input.json.bak
 broadcast/
 bootloader/
-.env.deploy
-.env.deploy
 deployment-addresses.json
 proofs/
+input.json

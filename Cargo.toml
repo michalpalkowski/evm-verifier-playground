@@ -1,7 +1,10 @@
 [workspace]
 members = [
     "scripts/prepare_input",
-    "scripts/calculate_fri_steps"
+    "scripts/calculate_fri_steps",
+    "scripts/verify_proof_split",
+    "scripts/deploy",
+    "scripts/test"
 ]
 resolver = "2"
 

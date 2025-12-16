@@ -6,6 +6,10 @@ import "../src/layout_starknet/CpuVerifier.sol";
 import "../src/common/MemoryPageFactRegistry.sol";
 import "../src/layout_starknet/CpuOods.sol";
 import "../src/layout_starknet/CpuConstraintPoly.sol";
+import "../src/GpsStatementVerifier/GpsStatementVerifier.sol";
+import "../src/common/CairoBootloaderProgram.sol";
+import "../src/common/MerkleStatementContract.sol";
+import "../src/common/FriStatementContract.sol";
 
 // Periodic column imports
 import "evm-verifier-columns/PedersenHashPointsXColumn.sol";
@@ -39,25 +43,80 @@ contract DeployScript is Script {
         console.log("Deploying STARK Verifier to Sepolia...");
         console.log("Deployer:", vm.addr(deployerPrivateKey));
 
+        // Deploy all contracts
+        DeploymentAddresses memory addrs = _deployAll();
+
+        vm.stopBroadcast();
+
+        // Save deployment addresses
+        _saveDeploymentAddresses(addrs);
+    }
+
+    struct DeploymentAddresses {
+        address verifier;
+        address gpsVerifier;
+        address factRegistry;
+        address oodsContract;
+        address constraintPoly;
+        address bootloaderProgram;
+        address merkleStatementContract;
+        address friStatementContract;
+    }
+
+    function _deployAll() internal returns (DeploymentAddresses memory addrs) {
         // Step 1: Deploy MemoryPageFactRegistry
         console.log("\n1. Deploying MemoryPageFactRegistry...");
-        MemoryPageFactRegistry factRegistry = new MemoryPageFactRegistry();
-        console.log("  MemoryPageFactRegistry:", address(factRegistry));
+        addrs.factRegistry = address(new MemoryPageFactRegistry());
+        console.log("  MemoryPageFactRegistry:", addrs.factRegistry);
+
+        // Step 1.5: Deploy MerkleStatementContract and FriStatementContract
+        console.log("\n1.5. Deploying MerkleStatementContract...");
+        addrs.merkleStatementContract = address(new MerkleStatementContract());
+        console.log("  MerkleStatementContract:", addrs.merkleStatementContract);
+
+        console.log("\n1.6. Deploying FriStatementContract...");
+        addrs.friStatementContract = address(new FriStatementContract());
+        console.log("  FriStatementContract:", addrs.friStatementContract);
 
         // Step 2: Deploy CpuOods
         console.log("\n2. Deploying CpuOods...");
-        CpuOods oodsContract = new CpuOods();
-        console.log("  CpuOods:", address(oodsContract));
+        addrs.oodsContract = address(new CpuOods());
+        console.log("  CpuOods:", addrs.oodsContract);
 
         // Step 3: Deploy CpuConstraintPoly
         console.log("\n3. Deploying CpuConstraintPoly...");
-        CpuConstraintPoly constraintPoly = new CpuConstraintPoly();
-        console.log("  CpuConstraintPoly:", address(constraintPoly));
+        addrs.constraintPoly = address(new CpuConstraintPoly());
+        console.log("  CpuConstraintPoly:", addrs.constraintPoly);
 
         // Step 4: Deploy Periodic Columns
-        console.log("\n4. Deploying Periodic Columns...");
-        address[9] memory periodicColumns;
+        address[9] memory periodicColumns = _deployPeriodicColumns();
 
+        // Step 5: Prepare aux polynomials array
+        address[] memory auxPolynomials = _prepareAuxPolynomials(addrs.constraintPoly, periodicColumns);
+
+        // Step 6: Deploy main CpuVerifier
+        console.log("\n5. Deploying CpuVerifier...");
+        addrs.verifier = address(new CpuVerifier(
+            auxPolynomials,
+            addrs.oodsContract,
+            addrs.factRegistry,
+            NUM_SECURITY_BITS,
+            MIN_PROOF_OF_WORK_BITS
+        ));
+        console.log("  CpuVerifier:", addrs.verifier);
+
+        // Step 7: Deploy CairoBootloaderProgram
+        console.log("\n6. Deploying CairoBootloaderProgram...");
+        addrs.bootloaderProgram = address(new CairoBootloaderProgram());
+        console.log("  CairoBootloaderProgram:", addrs.bootloaderProgram);
+
+        // Step 8: Deploy GpsStatementVerifier
+        addrs.gpsVerifier = _deployGpsVerifier(addrs.bootloaderProgram, addrs.factRegistry, addrs.verifier);
+    }
+
+    function _deployPeriodicColumns() internal returns (address[9] memory periodicColumns) {
+        console.log("\n4. Deploying Periodic Columns...");
+        
         periodicColumns[0] = address(new PedersenHashPointsXColumn());
         console.log("  PedersenHashPointsXColumn:", periodicColumns[0]);
 
@@ -84,46 +143,93 @@ contract DeployScript is Script {
 
         periodicColumns[8] = address(new PoseidonPoseidonPartialRoundKey1Column());
         console.log("  PoseidonPoseidonPartialRoundKey1Column:", periodicColumns[8]);
+    }
 
-        // Step 5: Prepare aux polynomials array (CpuConstraintPoly + 9 periodic columns)
-        address[] memory auxPolynomials = new address[](10);
-        auxPolynomials[0] = address(constraintPoly);  // Index 0: CpuConstraintPoly
+    function _prepareAuxPolynomials(
+        address constraintPoly,
+        address[9] memory periodicColumns
+    ) internal pure returns (address[] memory auxPolynomials) {
+        auxPolynomials = new address[](10);
+        auxPolynomials[0] = constraintPoly;  // Index 0: CpuConstraintPoly
         for (uint256 i = 0; i < 9; i++) {
             auxPolynomials[i + 1] = periodicColumns[i];  // Indices 1-9: periodic columns
         }
+    }
 
-        // Step 6: Deploy main CpuVerifier
-        console.log("\n5. Deploying CpuVerifier...");
-        CpuVerifier verifier = new CpuVerifier(
-            auxPolynomials,
-            address(oodsContract),
-            address(factRegistry),
-            NUM_SECURITY_BITS,
-            MIN_PROOF_OF_WORK_BITS
-        );
-        console.log("  CpuVerifier:", address(verifier));
+    function _deployGpsVerifier(
+        address bootloaderProgram,
+        address factRegistry,
+        address verifier
+    ) internal returns (address) {
+        console.log("\n7. Deploying GpsStatementVerifier...");
+        console.log("  CpuVerifier address:", verifier);
+        
+        // We deploy only 1 verifier and use cairo_verifier_id = 0 (like in tests)
+        // Since we make manual requests, we don't need to match stark-evm-adapter's hardcoded id = 6
+        address[] memory cairoVerifiers = new address[](1);
+        cairoVerifiers[0] = address(verifier);
+        console.log("  Created cairoVerifiers array with length:", cairoVerifiers.length);
+        console.log("  Set cairoVerifiers[0] to:", cairoVerifiers[0]);
 
-        vm.stopBroadcast();
+        // These values must match the bootloader config used when generating proofs
+        uint256 simpleBootloaderProgramHash = 2837065596727015720211588542358388273918703458440061085859263118820688767610;
+        uint256 hashedSupportedCairoVerifiers = 178987933271357263253427805726820412853545264541548426444153286928731358780;
 
-        // Save deployment addresses
+        console.log("  Calling GpsStatementVerifier constructor with:");
+        console.log("    bootloaderProgram:", bootloaderProgram);
+        console.log("    factRegistry:", factRegistry);
+        console.log("    cairoVerifiers.length:", cairoVerifiers.length);
+        console.log("    cairoVerifiers[0]:", cairoVerifiers[0]);
+
+        address gpsVerifier = address(new GpsStatementVerifier(
+            bootloaderProgram,
+            factRegistry,
+            cairoVerifiers,
+            hashedSupportedCairoVerifiers,
+            simpleBootloaderProgramHash,
+            address(0),  // referenceVerifier
+            0            // referralDurationSeconds
+        ));
+        console.log("  GpsStatementVerifier deployed at:", gpsVerifier);
+        
+        // Verify the deployment by calling getCairoVerifierInfo if available
+        GpsStatementVerifier gps = GpsStatementVerifier(gpsVerifier);
+        try gps.getCairoVerifierInfo() returns (uint256 count, address firstVerifier) {
+            console.log("  Verification: getCairoVerifierInfo() returned:");
+            console.log("    count:", count);
+            console.log("    firstVerifier:", firstVerifier);
+            require(count > 0, "ERROR: GpsStatementVerifier was deployed with 0 Cairo verifiers!");
+            require(firstVerifier == verifier, "ERROR: First verifier does not match expected verifier!");
+        } catch {
+            console.log("  Warning: getCairoVerifierInfo() not available (old contract version)");
+        }
+        
+        return gpsVerifier;
+    }
+
+    function _saveDeploymentAddresses(DeploymentAddresses memory addrs) internal {
         console.log("\n===== DEPLOYMENT COMPLETE =====");
         console.log("\nDeployed Addresses:");
-        console.log("  MemoryPageFactRegistry:", address(factRegistry));
-        console.log("  CpuOods:", address(oodsContract));
-        console.log("  CpuConstraintPoly:", address(constraintPoly));
-        console.log("  CpuVerifier:", address(verifier));
-        console.log("\nPerio columns:");
-        for (uint256 i = 0; i < 9; i++) {
-            console.log("  ", i, ":", periodicColumns[i]);
-        }
+        console.log("  MemoryPageFactRegistry:", addrs.factRegistry);
+        console.log("  MerkleStatementContract:", addrs.merkleStatementContract);
+        console.log("  FriStatementContract:", addrs.friStatementContract);
+        console.log("  CpuOods:", addrs.oodsContract);
+        console.log("  CpuConstraintPoly:", addrs.constraintPoly);
+        console.log("  CpuVerifier:", addrs.verifier);
+        console.log("  CairoBootloaderProgram:", addrs.bootloaderProgram);
+        console.log("  GpsStatementVerifier:", addrs.gpsVerifier);
 
         // Save to file for easy reference
         string memory deploymentInfo = string.concat(
             "{\n",
-            '  "verifier": "', vm.toString(address(verifier)), '",\n',
-            '  "factRegistry": "', vm.toString(address(factRegistry)), '",\n',
-            '  "oodsContract": "', vm.toString(address(oodsContract)), '",\n',
-            '  "constraintPoly": "', vm.toString(address(constraintPoly)), '"\n',
+            '  "verifier": "', vm.toString(addrs.verifier), '",\n',
+            '  "gpsVerifier": "', vm.toString(addrs.gpsVerifier), '",\n',
+            '  "factRegistry": "', vm.toString(addrs.factRegistry), '",\n',
+            '  "oodsContract": "', vm.toString(addrs.oodsContract), '",\n',
+            '  "constraintPoly": "', vm.toString(addrs.constraintPoly), '",\n',
+            '  "bootloaderProgram": "', vm.toString(addrs.bootloaderProgram), '",\n',
+            '  "merkleStatementContract": "', vm.toString(addrs.merkleStatementContract), '",\n',
+            '  "friStatementContract": "', vm.toString(addrs.friStatementContract), '"\n',
             "}\n"
         );
 

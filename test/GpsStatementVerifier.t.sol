@@ -109,7 +109,7 @@ contract GpsStatementVerifierTest is Test {
         string[] memory memoryPairsHex = vm.parseJsonStringArray(inputJson, string.concat(regularPageKey, ".memory_pairs"));
         require(memoryPairsHex.length > 0, "Regular page (page 0) must exist and have memory pairs");
         uint256[] memory memoryPairs = hexStringArrayToUint256Array(memoryPairsHex);
-        factRegistry.registerRegularMemoryPage(memoryPairs, z, alpha, K_MODULUS);
+        // factRegistry.registerRegularMemoryPage(memoryPairs, z, alpha, K_MODULUS);
 
         // Parse continuous pages (page > 0)
         string memory continuousPagesKey = ".memory_page_facts.continuous_pages";
